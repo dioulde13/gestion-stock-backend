@@ -10,6 +10,7 @@ const TypeMvt = require('./typeMvt');
 const MouvementStock = require('./mouvementStock');
 const Fournisseur = require('./fournisseur');
 
+
 // Relations principales
 Categorie.hasMany(Produit, { foreignKey: 'categorieId' });
 Produit.belongsTo(Categorie, { foreignKey: 'categorieId' });
@@ -24,7 +25,9 @@ Produit.hasMany(LigneAchat, { foreignKey: 'produitId' });
 LigneAchat.belongsTo(Produit, { foreignKey: 'produitId' });
 
 Vente.hasMany(LigneVente, { foreignKey: 'venteId' });
-LigneVente.belongsTo(Vente, { foreignKey: 'venteId' });
+
+// Vente.hasMany(LigneVente, { foreignKey: 'venteId' });
+// LigneVente.belongsTo(Vente, { foreignKey: 'venteId' });
 
 Achat.hasMany(LigneAchat, { foreignKey: 'achatId' });
 LigneAchat.belongsTo(Achat, { foreignKey: 'achatId' });

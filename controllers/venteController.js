@@ -1,33 +1,40 @@
-const { sequelize } = require('../models/sequelize');
-const Vente = require('../models/vente');
-const LigneVente = require('../models/ligneVente');
+const Sequelize = require('sequelize');
+// const Vente = require('../models/vente');
+// const LigneVente = require('../models/ligneVente');
 const Produit = require('../models/produit');
-const { Sequelize } = require('../models/sequelize');
+const { Vente, LigneVente } = require('../models/relation');
+
+const sequelize = require('../models/sequelize');
 
 const creerVente = async (req, res) => {
     const t = await sequelize.transaction();
     try {
         const { lignes } = req.body;
-        if (!lignes || lignes.length === 0) {
+        if (!lignes || !Array.isArray(lignes) || lignes.length === 0) {
+            await t.rollback();
             return res.status(400).json({ message: 'Les lignes de vente sont obligatoires.' });
         }
 
-        let total = 0;
-        for (const ligne of lignes) {
+        const totals = await Promise.all(lignes.map(async ligne => {
             if (!ligne.produitId || !ligne.quantite || !ligne.prix_vente) {
-                await t.rollback();
-                return res.status(400).json({ message: 'Chaque ligne doit contenir produitId, quantite, prix_vente.' });
+                throw new Error('Chaque ligne doit contenir produitId, quantite, prix_vente.');
             }
-            const produit = await Produit.findByPk(ligne.produitId, { transaction: t });
-            if (!produit || produit.stock_actuel < ligne.quantite) {
-                await t.rollback();
-                return res.status(400).json({ message: `Stock insuffisant pour le produit ID ${ligne.produitId}.` });
+            const produit = await Produit.findByPk(ligne.produitId, { transaction: t, lock: t.LOCK.UPDATE });
+            if (!produit) {
+                throw new Error(`Produit ID ${ligne.produitId} non trouvé.`);
             }
-            total += ligne.quantite * ligne.prix_vente;
-        }
+            if (produit.stock_actuel < ligne.quantite) {
+                throw new Error(`Stock insuffisant pour le produit: ${produit?.nom} qui est: ${produit?.stock_actuel}.`);
+            }
+            return ligne.quantite * ligne.prix_vente;
+        }));
 
+        const total = totals.reduce((acc, val) => acc + val, 0);
+
+        // Création de la vente
         const vente = await Vente.create({ total }, { transaction: t });
 
+        // Création des lignes et mise à jour stock
         for (const ligne of lignes) {
             await LigneVente.create({
                 venteId: vente.id,
@@ -36,18 +43,19 @@ const creerVente = async (req, res) => {
                 prix_vente: ligne.prix_vente
             }, { transaction: t });
 
-            const produit = await Produit.findByPk(ligne.produitId);
+            const produit = await Produit.findByPk(ligne.produitId, { transaction: t, lock: t.LOCK.UPDATE });
             await produit.update({
                 stock_actuel: produit.stock_actuel - ligne.quantite
             }, { transaction: t });
         }
 
         await t.commit();
-        res.status(201).json({ message: 'Vente créée avec succès.', venteId: vente.id });
+        return res.status(201).json({ message: 'Vente créée avec succès.', venteId: vente.id });
     } catch (error) {
         await t.rollback();
         console.error("Erreur lors de la vente :", error);
-        res.status(500).json({ message: 'Erreur interne du serveur.' });
+        const message = error.message || 'Erreur interne du serveur.';
+        return res.status(400).json({ message });
     }
 };
 
@@ -60,10 +68,10 @@ const recupererVentes = async (req, res) => {
             }],
             order: [['date', 'DESC']]
         });
-        res.status(200).json(ventes);
+        return res.status(200).json(ventes);
     } catch (error) {
         console.error('Erreur lors de la récupération des ventes :', error);
-        res.status(500).json({ message: 'Erreur interne du serveur.' });
+        return res.status(500).json({ message: 'Erreur interne du serveur.' });
     }
 };
 
@@ -77,10 +85,10 @@ const consulterVente = async (req, res) => {
             }]
         });
         if (!vente) return res.status(404).json({ message: 'Vente non trouvée.' });
-        res.status(200).json(vente);
+        return res.status(200).json(vente);
     } catch (error) {
         console.error('Erreur lors de la consultation de la vente :', error);
-        res.status(500).json({ message: 'Erreur interne du serveur.' });
+        return res.status(500).json({ message: 'Erreur interne du serveur.' });
     }
 };
 
@@ -97,7 +105,7 @@ const supprimerVente = async (req, res) => {
         const lignes = await LigneVente.findAll({ where: { venteId: id }, transaction: t });
 
         for (const ligne of lignes) {
-            const produit = await Produit.findByPk(ligne.produitId, { transaction: t });
+            const produit = await Produit.findByPk(ligne.produitId, { transaction: t, lock: t.LOCK.UPDATE });
             if (produit) {
                 await produit.update({
                     stock_actuel: produit.stock_actuel + ligne.quantite
@@ -109,11 +117,11 @@ const supprimerVente = async (req, res) => {
         await vente.destroy({ transaction: t });
 
         await t.commit();
-        res.status(200).json({ message: 'Vente supprimée avec succès.' });
+        return res.status(200).json({ message: 'Vente supprimée avec succès.' });
     } catch (error) {
         await t.rollback();
         console.error('Erreur lors de la suppression de la vente :', error);
-        res.status(500).json({ message: 'Erreur interne du serveur.' });
+        return res.status(500).json({ message: 'Erreur interne du serveur.' });
     }
 };
 
@@ -134,10 +142,10 @@ const produitsPlusVendus = async (req, res) => {
             ],
             limit: 10
         });
-        res.status(200).json(result);
+        return res.status(200).json(result);
     } catch (error) {
         console.error('Erreur lors de la récupération des produits les plus vendus :', error);
-        res.status(500).json({ message: 'Erreur interne du serveur.' });
+        return res.status(500).json({ message: 'Erreur interne du serveur.' });
     }
 };
 
