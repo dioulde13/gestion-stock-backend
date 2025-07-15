@@ -59,7 +59,8 @@ const dashboardStats = async (req, res) => {
           createdAt: {
             [Op.gte]: today
           }
-        }
+        },
+        include: [{ model: Produit, attributes: ['id', 'nom', 'prix_achat'] }]
       }),
       Produit.count({
         where: {
@@ -82,10 +83,39 @@ const dashboardStats = async (req, res) => {
       })
     ]);
 
+    ligneVentesDuJour = await LigneVente.findAll({
+      where: {
+        createdAt: {
+          [Op.gte]: today
+        }
+      },
+      include: [
+        {
+          model: Produit,
+          attributes: ['id', 'nom', 'prix_achat', 'prix_vente', 'stock_actuel']
+        }
+      ]
+    });
+    console.log(ligneVentesDuJour);
+
+    ligneVentesDuJour.forEach(ligne => {
+      console.log('Nom produit:', ligne.Produit.nom);
+      console.log('Quantité vendue:', ligne.quantite);
+      console.log('Prix achat:', ligne.Produit.prix_achat);
+      console.log('Prix vente:', ligne.prix_vente);
+    });
+
+    let totalsAchatJour = ligneVentesDuJour.reduce((acc, l) => {
+      const prixAchat = l.Produit?.prix_achat || 0;
+      return acc + (l.quantite * prixAchat);
+    }, 0);
+    console.log(totalsAchatJour)
+
+
     // Calcul bénéfice du jour : total ventes - total achats (simplifié)
     let totalAchatJour = lignesAchatsDuJour.reduce((acc, l) => acc + (l.quantite * l.prix_achat), 0);
     let totalVenteJour = lignesVentesDuJour.reduce((acc, l) => acc + (l.quantite * l.prix_vente), 0);
-    let beneficeDuJour = totalVenteJour - totalAchatJour;
+    let beneficeDuJour = totalVenteJour - totalsAchatJour;
 
     res.status(200).json({
       totalProduits,
@@ -105,6 +135,8 @@ const dashboardStats = async (req, res) => {
     res.status(500).json({ message: 'Erreur interne du serveur.' });
   }
 };
+
+
 
 const produitsPlusVendus = async (req, res) => {
   try {

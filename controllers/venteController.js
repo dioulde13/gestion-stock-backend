@@ -64,7 +64,7 @@ const recupererVentes = async (req, res) => {
         const ventes = await Vente.findAll({
             include: [{
                 model: LigneVente,
-                include: [{ model: Produit, attributes: ['id', 'nom'] }]
+                include: [{ model: Produit, attributes: ['id', 'nom', 'prix_achat'] }]
             }],
             order: [['date', 'DESC']]
         });

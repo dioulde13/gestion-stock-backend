@@ -7,7 +7,7 @@ const { sequelize } = require('../models/sequelize');
 const creerAchat = async (req, res) => {
     const t = await sequelize.transaction();
     try {
-        const { fournisseurId, lignes } = req.body; // lignes = [{ produitId, quantite, prix_achat }, ...]
+        const { fournisseurId, lignes } = req.body;
 
         if (!fournisseurId || !lignes || lignes.length === 0) {
             return res.status(400).json({ message: 'Fournisseur et lignes d\'achat obligatoires.' });
