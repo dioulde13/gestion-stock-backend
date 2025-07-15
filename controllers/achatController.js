@@ -1,15 +1,14 @@
 const Achat = require('../models/achat');
 const LigneAchat = require('../models/ligneAchat');
 const Produit = require('../models/produit');
-const { sequelize } = require('../models/sequelize');
+const  sequelize  = require('../models/sequelize');
 
-// Créer un achat avec ses lignes (transaction)
 const creerAchat = async (req, res) => {
     const t = await sequelize.transaction();
     try {
-        const { fournisseurId, lignes } = req.body;
+        const { fournisseurId, utilisateurId, lignes } = req.body;
 
-        if (!fournisseurId || !lignes || lignes.length === 0) {
+        if (!fournisseurId || !utilisateurId || !lignes || lignes.length === 0) {
             return res.status(400).json({ message: 'Fournisseur et lignes d\'achat obligatoires.' });
         }
 
@@ -24,7 +23,7 @@ const creerAchat = async (req, res) => {
         }
 
         // Création achat
-        const achat = await Achat.create({ fournisseurId, total }, { transaction: t });
+        const achat = await Achat.create({ fournisseurId, utilisateurId, total }, { transaction: t });
 
         // Création lignes et mise à jour stock produit (augmentation)
         for (const ligne of lignes) {
@@ -39,10 +38,11 @@ const creerAchat = async (req, res) => {
                 produitId: ligne.produitId,
                 quantite: ligne.quantite,
                 prix_achat: ligne.prix_achat,
+                prix_vente: ligne.prix_vente
             }, { transaction: t });
 
             // Mise à jour du stock (augmentation)
-            await produit.update({ stock_actuel: produit.stock_actuel + ligne.quantite }, { transaction: t });
+            await produit.update({prix_vente: ligne.prix_vente, prix_achat: ligne.prix_achat, stock_actuel: produit.stock_actuel + ligne.quantite }, { transaction: t });
         }
 
         await t.commit();

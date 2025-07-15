@@ -1,4 +1,3 @@
-// dashboardController.js
 const { Op, fn, col, literal } = require('sequelize');
 const Produit = require('../models/produit');
 const Achat = require('../models/achat');

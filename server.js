@@ -19,7 +19,7 @@ const utilisateurRoutes = require("./routes/utilisateurRoutes");
 const roleRoutes = require("./routes/roleRoutes");
 const mouvementStockRoute = require("./routes/mouvementStockRoutes");
 const achatRoute = require("./routes/achatRoute");
-const fournisseurRoute = require("./routes/categorieRoutes");
+const fournisseurRoute = require("./routes/fournisseurRoutes");
 const dasboardRoutes = require("./routes/dashboardRoute");
 const venteRoute = require("./routes/venteRoute");
 
@@ -43,9 +43,9 @@ app.use(
 
 app.use("/api/dashboard", dasboardRoutes);
 app.use("/api/vente", venteRoute);
-app.use("/api/achat", mouvementStockRoute);
+app.use("/api/achat", achatRoute);
 app.use("/api/fournisseur", fournisseurRoute);
-app.use("/api/mouvementStock", achatRoute);
+app.use("/api/mouvementStock", mouvementStockRoute);
 app.use("/api/role", roleRoutes);
 app.use("/api/produit", produitRoute);
 app.use("/api/categorie", categorieRoutes);

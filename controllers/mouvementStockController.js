@@ -58,7 +58,7 @@ const recupererMouvementsStock = async (req, res) => {
             order: [['date', 'DESC']],
             include: [
                 { model: Produit, attributes: ['id', 'nom'] },
-                { model: TypeMvt, attributes: ['id', 'nom'] },
+                { model: TypeMvt, attributes: ['id', 'type'] },
                 { model: Utilisateur, attributes: ['id', 'nom'] }
             ],
         });
