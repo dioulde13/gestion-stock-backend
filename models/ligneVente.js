@@ -17,6 +17,10 @@ const LigneVente = sequelize.define('LigneVente', {
     type: DataTypes.FLOAT,
     allowNull: false,
   },
+  prix_achat: { // <-- nouveau champ
+    type: DataTypes.FLOAT,
+    allowNull: false,
+  },
   produitId: {
     type: DataTypes.INTEGER,
     allowNull: false,

@@ -23,10 +23,6 @@ const fournisseurRoute = require("./routes/fournisseurRoutes");
 const dasboardRoutes = require("./routes/dashboardRoute");
 const venteRoute = require("./routes/venteRoute");
 
-
-
-
-
 const app = express();
 const PORT = 3000;
 

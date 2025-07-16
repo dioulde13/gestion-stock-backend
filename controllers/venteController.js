@@ -1,62 +1,117 @@
 const Sequelize = require('sequelize');
-// const Vente = require('../models/vente');
-// const LigneVente = require('../models/ligneVente');
 const Produit = require('../models/produit');
 const { Vente, LigneVente } = require('../models/relation');
 
 const sequelize = require('../models/sequelize');
 
+// const creerVente = async (req, res) => {
+//     const t = await sequelize.transaction();
+//     try {
+//         const { lignes } = req.body;
+//         if (!lignes || !Array.isArray(lignes) || lignes.length === 0) {
+//             await t.rollback();
+//             return res.status(400).json({ message: 'Les lignes de vente sont obligatoires.' });
+//         }
+
+//         const totals = await Promise.all(lignes.map(async ligne => {
+//             if (!ligne.produitId || !ligne.quantite || !ligne.prix_vente) {
+//                 throw new Error('Chaque ligne doit contenir produitId, quantite, prix_vente.');
+//             }
+//             const produit = await Produit.findByPk(ligne.produitId, { transaction: t, lock: t.LOCK.UPDATE });
+//             if (!produit) {
+//                 throw new Error(`Produit ID ${ligne.produitId} non trouvé.`);
+//             }
+//             if (produit.stock_actuel < ligne.quantite) {
+//                 throw new Error(`Stock insuffisant pour le produit: ${produit?.nom} qui est: ${produit?.stock_actuel}.`);
+//             }
+//             return ligne.quantite * ligne.prix_vente;
+//         }));
+
+//         const total = totals.reduce((acc, val) => acc + val, 0);
+
+//         const vente = await Vente.create({ total }, { transaction: t });
+
+//         for (const ligne of lignes) {
+//             await LigneVente.create({
+//                 venteId: vente.id,
+//                 produitId: ligne.produitId,
+//                 quantite: ligne.quantite,
+//                 prix_vente: ligne.prix_vente
+//             }, { transaction: t });
+
+//             const produit = await Produit.findByPk(ligne.produitId, { transaction: t, lock: t.LOCK.UPDATE });
+//             await produit.update({
+//                 stock_actuel: produit.stock_actuel - ligne.quantite
+//             }, { transaction: t });
+//         }
+
+//         await t.commit();
+//         return res.status(201).json({ message: 'Vente créée avec succès.', venteId: vente.id });
+//     } catch (error) {
+//         await t.rollback();
+//         console.error("Erreur lors de la vente :", error);
+//         const message = error.message || 'Erreur interne du serveur.';
+//         return res.status(400).json({ message });
+//     }
+// };
+
 const creerVente = async (req, res) => {
-    const t = await sequelize.transaction();
-    try {
-        const { lignes } = req.body;
-        if (!lignes || !Array.isArray(lignes) || lignes.length === 0) {
-            await t.rollback();
-            return res.status(400).json({ message: 'Les lignes de vente sont obligatoires.' });
-        }
+  const t = await sequelize.transaction();
+  try {
+    const { lignes } = req.body;
 
-        const totals = await Promise.all(lignes.map(async ligne => {
-            if (!ligne.produitId || !ligne.quantite || !ligne.prix_vente) {
-                throw new Error('Chaque ligne doit contenir produitId, quantite, prix_vente.');
-            }
-            const produit = await Produit.findByPk(ligne.produitId, { transaction: t, lock: t.LOCK.UPDATE });
-            if (!produit) {
-                throw new Error(`Produit ID ${ligne.produitId} non trouvé.`);
-            }
-            if (produit.stock_actuel < ligne.quantite) {
-                throw new Error(`Stock insuffisant pour le produit: ${produit?.nom} qui est: ${produit?.stock_actuel}.`);
-            }
-            return ligne.quantite * ligne.prix_vente;
-        }));
-
-        const total = totals.reduce((acc, val) => acc + val, 0);
-
-        // Création de la vente
-        const vente = await Vente.create({ total }, { transaction: t });
-
-        // Création des lignes et mise à jour stock
-        for (const ligne of lignes) {
-            await LigneVente.create({
-                venteId: vente.id,
-                produitId: ligne.produitId,
-                quantite: ligne.quantite,
-                prix_vente: ligne.prix_vente
-            }, { transaction: t });
-
-            const produit = await Produit.findByPk(ligne.produitId, { transaction: t, lock: t.LOCK.UPDATE });
-            await produit.update({
-                stock_actuel: produit.stock_actuel - ligne.quantite
-            }, { transaction: t });
-        }
-
-        await t.commit();
-        return res.status(201).json({ message: 'Vente créée avec succès.', venteId: vente.id });
-    } catch (error) {
-        await t.rollback();
-        console.error("Erreur lors de la vente :", error);
-        const message = error.message || 'Erreur interne du serveur.';
-        return res.status(400).json({ message });
+    if (!lignes || !Array.isArray(lignes) || lignes.length === 0) {
+      await t.rollback();
+      return res.status(400).json({ message: 'Les lignes de vente sont obligatoires.' });
     }
+
+    const totals = await Promise.all(lignes.map(async ligne => {
+      if (!ligne.produitId || !ligne.quantite || !ligne.prix_vente) {
+        throw new Error('Chaque ligne doit contenir produitId, quantite, prix_vente.');
+      }
+
+      const produit = await Produit.findByPk(ligne.produitId, { transaction: t, lock: t.LOCK.UPDATE });
+
+      if (!produit) {
+        throw new Error(`Produit ID ${ligne.produitId} non trouvé.`);
+      }
+
+      if (produit.stock_actuel < ligne.quantite) {
+        throw new Error(`Stock insuffisant pour le produit: ${produit.nom}, disponible: ${produit.stock_actuel}.`);
+      }
+
+      return ligne.quantite * ligne.prix_vente;
+    }));
+
+    const total = totals.reduce((acc, val) => acc + val, 0);
+
+    const vente = await Vente.create({ total }, { transaction: t });
+
+    for (const ligne of lignes) {
+      const produit = await Produit.findByPk(ligne.produitId, { transaction: t, lock: t.LOCK.UPDATE });
+
+      await LigneVente.create({
+        venteId: vente.id,
+        produitId: ligne.produitId,
+        quantite: ligne.quantite,
+        prix_vente: ligne.prix_vente,
+        prix_achat: produit.prix_achat // <-- Enregistrement du prix d'achat à l'instant T
+      }, { transaction: t });
+
+      await produit.update({
+        stock_actuel: produit.stock_actuel - ligne.quantite
+      }, { transaction: t });
+    }
+
+    await t.commit();
+    return res.status(201).json({ message: 'Vente créée avec succès.', venteId: vente.id });
+
+  } catch (error) {
+    await t.rollback();
+    console.error("Erreur lors de la vente :", error);
+    const message = error.message || 'Erreur interne du serveur.';
+    return res.status(400).json({ message });
+  }
 };
 
 const recupererVentes = async (req, res) => {

@@ -100,19 +100,19 @@ const dashboardStats = async (req, res) => {
     ligneVentesDuJour.forEach(ligne => {
       console.log('Nom produit:', ligne.Produit.nom);
       console.log('Quantité vendue:', ligne.quantite);
-      console.log('Prix achat:', ligne.Produit.prix_achat);
+      console.log('Prix achat:', ligne.prix_achat);
       console.log('Prix vente:', ligne.prix_vente);
     });
 
     let totalsAchatJour = ligneVentesDuJour.reduce((acc, l) => {
-      const prixAchat = l.Produit?.prix_achat || 0;
+      const prixAchat = l.prix_achat || 0;
       return acc + (l.quantite * prixAchat);
     }, 0);
     console.log(totalsAchatJour)
 
 
     // Calcul bénéfice du jour : total ventes - total achats (simplifié)
-    let totalAchatJour = lignesAchatsDuJour.reduce((acc, l) => acc + (l.quantite * l.prix_achat), 0);
+    // let totalAchatJour = lignesAchatsDuJour.reduce((acc, l) => acc + (l.quantite * l.prix_achat), 0);
     let totalVenteJour = lignesVentesDuJour.reduce((acc, l) => acc + (l.quantite * l.prix_vente), 0);
     let beneficeDuJour = totalVenteJour - totalsAchatJour;
 
