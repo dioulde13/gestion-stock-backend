@@ -16,9 +16,7 @@ const dashboardStats = async (req, res) => {
       valeurStock,
       totalAchats,
       totalVentes,
-      achatsDuJour,
       ventesDuJour,
-      lignesAchatsDuJour,
       lignesVentesDuJour,
       produitsEnStock,
       rupturesStock,
@@ -32,13 +30,6 @@ const dashboardStats = async (req, res) => {
       }),
       Achat.sum('total'),
       Vente.sum('total'),
-      Achat.sum('total', {
-        where: {
-          dateAchat: {
-            [Op.gte]: today
-          }
-        }
-      }),
       Vente.sum('total', {
         where: {
           date: {
@@ -46,13 +37,7 @@ const dashboardStats = async (req, res) => {
           }
         }
       }),
-      LigneAchat.findAll({
-        where: {
-          createdAt: {
-            [Op.gte]: today
-          }
-        }
-      }),
+     
       LigneVente.findAll({
         where: {
           createdAt: {
@@ -95,20 +80,20 @@ const dashboardStats = async (req, res) => {
         }
       ]
     });
-    console.log(ligneVentesDuJour);
+    // console.log(ligneVentesDuJour);
 
-    ligneVentesDuJour.forEach(ligne => {
-      console.log('Nom produit:', ligne.Produit.nom);
-      console.log('Quantité vendue:', ligne.quantite);
-      console.log('Prix achat:', ligne.prix_achat);
-      console.log('Prix vente:', ligne.prix_vente);
-    });
+    // ligneVentesDuJour.forEach(ligne => {
+    //   console.log('Nom produit:', ligne.Produit.nom);
+    //   console.log('Quantité vendue:', ligne.quantite);
+    //   console.log('Prix achat:', ligne.prix_achat);
+    //   console.log('Prix vente:', ligne.prix_vente);
+    // });
 
     let totalsAchatJour = ligneVentesDuJour.reduce((acc, l) => {
       const prixAchat = l.prix_achat || 0;
       return acc + (l.quantite * prixAchat);
     }, 0);
-    console.log(totalsAchatJour)
+    // console.log(totalsAchatJour)
 
 
     // Calcul bénéfice du jour : total ventes - total achats (simplifié)
@@ -123,7 +108,7 @@ const dashboardStats = async (req, res) => {
       totalAchats: totalAchats || 0,
       totalVentes: totalVentes || 0,
       ventesDuJour: ventesDuJour || 0,
-      achatsDuJour: achatsDuJour || 0,
+      achatsDuJour: totalsAchatJour || 0,
       beneficeDuJour,
       produitsEnStock,
       rupturesStock,

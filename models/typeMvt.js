@@ -8,9 +8,9 @@ const TypeMvt = sequelize.define('TypeMvt', {
     primaryKey: true,
   },
   type: {
-    type: DataTypes.ENUM("entrée", "sortie"),
+    type: DataTypes.ENUM("ENTRE", "SORTIE"),
     allowNull: false,
-    defaultValue: "entrée",
+    defaultValue: "ENTRE",
   },
 });
 

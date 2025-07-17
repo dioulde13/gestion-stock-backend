@@ -6,9 +6,9 @@ const Utilisateur = require('../models/utilisateur');
 // Ajouter un mouvement de stock (entrée ou sortie)
 const ajouterMouvementStock = async (req, res) => {
     try {
-        const { produitId, quantite, typeMvtId, utilisateurId } = req.body;
+        const { produitId, quantite, motif, typeMvtId, utilisateurId } = req.body;
 
-        if (!produitId || !quantite || !typeMvtId || !utilisateurId) {
+        if (!produitId || !quantite || !motif || !typeMvtId || !utilisateurId) {
             return res.status(400).json({ message: 'Tous les champs sont obligatoires.' });
         }
 
@@ -19,9 +19,9 @@ const ajouterMouvementStock = async (req, res) => {
         if (!typeMvt) return res.status(404).json({ message: 'Type de mouvement non trouvé.' });
 
         // Gestion du stock selon le type de mouvement (exemple : 'entrée' augmente le stock)
-        if (typeMvt.nom.toLowerCase() === 'entrée') {
+        if (typeMvt.type === 'ENTRE') {
             produit.stock_actuel += quantite;
-        } else if (typeMvt.nom.toLowerCase() === 'sortie') {
+        } else if (typeMvt.nom.toLowerCase() === 'SORTIE') {
             if (produit.stock_actuel < quantite) {
                 return res.status(400).json({ message: 'Stock insuffisant pour cette sortie.' });
             }
@@ -35,6 +35,7 @@ const ajouterMouvementStock = async (req, res) => {
         const mouvement = await MouvementStock.create({
             produitId,
             quantite,
+            motif,
             typeMvtId,
             utilisateurId,
             date: new Date()

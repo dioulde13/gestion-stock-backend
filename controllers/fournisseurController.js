@@ -6,6 +6,8 @@ const ajouterFournisseur = async (req, res) => {
   try {
     const { nom, telephone, adresse, email, utilisateurId } = req.body;
 
+    console.log(req.body);
+
     if (!nom || !utilisateurId) {
       return res.status(400).json({ message: 'Le nom et l\'utilisateurId sont obligatoires.' });
     }

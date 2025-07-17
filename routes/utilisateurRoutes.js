@@ -8,6 +8,6 @@ router.post('/create', utilisateurController.ajouterUtilisateur);
 router.get('/liste', utilisateurController.recupererUtilisateurs);
 router.put('/:id', utilisateurController.modifierUtilisateur);
 router.post('/login', utilisateurController.connexionUtilisateur);
-
+router.delete('/supprimer/:id', utilisateurController.supprimerUtilisateur);
 
 module.exports = router;

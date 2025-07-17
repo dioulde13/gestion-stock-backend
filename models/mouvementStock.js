@@ -19,6 +19,10 @@ const MouvementStock = sequelize.define('MouvementStock', {
     type: DataTypes.INTEGER,
     allowNull: false,
   },
+  motif: {
+    type: DataTypes.STRING,
+    allowNull: false,
+  },
   date: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW,

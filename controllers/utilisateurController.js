@@ -81,4 +81,19 @@ const modifierUtilisateur = async (req, res) => {
     }
 };
 
-module.exports = { ajouterUtilisateur, recupererUtilisateurs, modifierUtilisateur , connexionUtilisateur};
+// Supprimer un Utilisateur
+const supprimerUtilisateur = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const utilisateur = await Utilisateur.findByPk(id);
+    if (!utilisateur) return res.status(404).json({ message: 'Utilisateur non trouvé.' });
+
+    await utilisateur.destroy();
+    res.status(200).json({ message: 'Utilisateur supprimé avec succès.' });
+  } catch (error) {
+    console.error('Erreur lors de la suppression du Utilisateur :', error);
+    res.status(500).json({ message: 'Erreur interne du serveur.' });
+  }
+};
+
+module.exports = { ajouterUtilisateur, recupererUtilisateurs, modifierUtilisateur , connexionUtilisateur, supprimerUtilisateur};
