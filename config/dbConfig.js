@@ -3,7 +3,7 @@ const dbConfig = {
   port: 3306,
   host: '127.0.0.1',
   user: 'root',
-  password: 'qwerty@',
-  database: 'gestionStock',
+  password: '1234',
+  database: 'gestion_Stock',
 };
 module.exports = dbConfig;

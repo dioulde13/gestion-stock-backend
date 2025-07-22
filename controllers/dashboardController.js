@@ -1,23 +1,25 @@
 const { Op, fn, col, literal } = require('sequelize');
 const Produit = require('../models/produit');
-const Achat = require('../models/achat');
-const Vente = require('../models/vente');
 const LigneVente = require('../models/ligneVente');
-const LigneAchat = require('../models/ligneAchat');
 
 const dashboardStats = async (req, res) => {
   try {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const now = new Date();
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const endOfToday = new Date();
+    endOfToday.setHours(23, 59, 59, 999);
+
+    const dateDebut = req.query.dateDebut ? new Date(req.query.dateDebut) : startOfMonth;
+    dateDebut.setHours(0, 0, 0, 0); // Forcer début de journée
+
+    const dateFin = req.query.dateFin ? new Date(req.query.dateFin) : endOfToday;
+    dateFin.setHours(23, 59, 59, 999); // Forcer fin de journée
 
     const [
       totalProduits,
       totalStock,
       valeurStock,
-      totalAchats,
-      totalVentes,
-      ventesDuJour,
-      lignesVentesDuJour,
+      lignesVentesPeriode,
       produitsEnStock,
       rupturesStock,
       alertesStock
@@ -28,23 +30,18 @@ const dashboardStats = async (req, res) => {
         attributes: [[fn('SUM', literal('stock_actuel * prix_achat')), 'valeurStock']],
         raw: true,
       }),
-      Achat.sum('total'),
-      Vente.sum('total'),
-      Vente.sum('total', {
-        where: {
-          date: {
-            [Op.gte]: today
-          }
-        }
-      }),
-     
       LigneVente.findAll({
         where: {
           createdAt: {
-            [Op.gte]: today
+            [Op.between]: [dateDebut, dateFin]
           }
         },
-        include: [{ model: Produit, attributes: ['id', 'nom', 'prix_achat'] }]
+        include: [
+          {
+            model: Produit,
+            attributes: ['id', 'nom', 'prix_achat', 'prix_vente', 'stock_actuel']
+          }
+        ]
       }),
       Produit.count({
         where: {
@@ -67,52 +64,33 @@ const dashboardStats = async (req, res) => {
       })
     ]);
 
-    ligneVentesDuJour = await LigneVente.findAll({
-      where: {
-        createdAt: {
-          [Op.gte]: today
-        }
-      },
-      include: [
-        {
-          model: Produit,
-          attributes: ['id', 'nom', 'prix_achat', 'prix_vente', 'stock_actuel']
-        }
-      ]
-    });
-    // console.log(ligneVentesDuJour);
-
-    // ligneVentesDuJour.forEach(ligne => {
-    //   console.log('Nom produit:', ligne.Produit.nom);
-    //   console.log('Quantité vendue:', ligne.quantite);
-    //   console.log('Prix achat:', ligne.prix_achat);
-    //   console.log('Prix vente:', ligne.prix_vente);
-    // });
-
-    let totalsAchatJour = ligneVentesDuJour.reduce((acc, l) => {
-      const prixAchat = l.prix_achat || 0;
-      return acc + (l.quantite * prixAchat);
+    // Calcul des valeurs d'achat et de vente pour la période
+    const totalAchatPeriode = lignesVentesPeriode.reduce((acc, ligne) => {
+      const prixAchat = ligne.prix_achat || ligne.Produit?.prix_achat || 0;
+      return acc + (ligne.quantite * prixAchat);
     }, 0);
-    // console.log(totalsAchatJour)
 
+    const totalVentePeriode = lignesVentesPeriode.reduce((acc, ligne) => {
+      const prixVente = ligne.prix_vente || ligne.Produit?.prix_vente || 0;
+      return acc + (ligne.quantite * prixVente);
+    }, 0);
 
-    // Calcul bénéfice du jour : total ventes - total achats (simplifié)
-    // let totalAchatJour = lignesAchatsDuJour.reduce((acc, l) => acc + (l.quantite * l.prix_achat), 0);
-    let totalVenteJour = lignesVentesDuJour.reduce((acc, l) => acc + (l.quantite * l.prix_vente), 0);
-    let beneficeDuJour = totalVenteJour - totalsAchatJour;
+    const beneficePeriode = totalVentePeriode - totalAchatPeriode;
 
     res.status(200).json({
       totalProduits,
       totalStock,
       valeurStock: parseFloat(valeurStock[0].valeurStock || 0),
-      totalAchats: totalAchats || 0,
-      totalVentes: totalVentes || 0,
-      ventesDuJour: ventesDuJour || 0,
-      achatsDuJour: totalsAchatJour || 0,
-      beneficeDuJour,
+      achatsTotal: totalAchatPeriode || 0,
+      ventesTotal: totalVentePeriode || 0,
+      beneficeTotal: beneficePeriode,
       produitsEnStock,
       rupturesStock,
-      alertesStock
+      alertesStock,
+      periode: {
+        dateDebut,
+        dateFin
+      }
     });
   } catch (error) {
     console.error('Erreur dashboard stats :', error);

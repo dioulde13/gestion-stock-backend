@@ -1,26 +1,11 @@
 
 const Utilisateur = require('../models/utilisateur');
 const Role = require('../models/role');
+const jwt = require("jsonwebtoken");
+
 
 const bcrypt = require('bcrypt');
 const SECRET_KEY = 'cle_super_secrete';
-
-// CONTROLLER / UTILISATEUR
-const ajouterUtilisateur = async (req, res) => {
-    try {
-        const { nom, email, mot_de_passe, roleId } = req.body;
-        if (!nom || !email || !mot_de_passe || !roleId) {
-            return res.status(400).json({ message: 'Tous les champs sont obligatoires.' });
-        }
-        const hash = await bcrypt.hash(mot_de_passe, 10);
-        const utilisateur = await Utilisateur.create({ nom, email, mot_de_passe: hash, roleId });
-        res.status(201).json({ message: 'Utilisateur créé avec succès.', utilisateur });
-    } catch (error) {
-        console.error("Erreur lors de l'ajout de l'utilisateur :", error);
-        res.status(500).json({ message: 'Erreur interne du serveur.' });
-    }
-};
-
 
 const connexionUtilisateur = async (req, res) => {
   try {
@@ -43,6 +28,25 @@ const connexionUtilisateur = async (req, res) => {
     res.status(500).json({ message: 'Erreur interne du serveur.' });
   }
 };
+
+// CONTROLLER / UTILISATEUR
+const ajouterUtilisateur = async (req, res) => {
+    try {
+        const { nom, email, mot_de_passe, roleId } = req.body;
+        if (!nom || !email || !mot_de_passe || !roleId) {
+            return res.status(400).json({ message: 'Tous les champs sont obligatoires.' });
+        }
+        const hash = await bcrypt.hash(mot_de_passe, 10);
+        const utilisateur = await Utilisateur.create({ nom, email, mot_de_passe: hash, roleId });
+        res.status(201).json({ message: 'Utilisateur créé avec succès.', utilisateur });
+    } catch (error) {
+        console.error("Erreur lors de l'ajout de l'utilisateur :", error);
+        res.status(500).json({ message: 'Erreur interne du serveur.' });
+    }
+};
+
+
+
 
 const recupererUtilisateurs = async (req, res) => {
     try {
