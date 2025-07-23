@@ -29,6 +29,11 @@ const dashboardStats = async (req, res) => {
       Produit.findAll({
         attributes: [[fn('SUM', literal('stock_actuel * prix_achat')), 'valeurStock']],
         raw: true,
+        where: {
+          createdAt: {
+            [Op.between]: [dateDebut, dateFin]
+          }
+        },
       }),
       LigneVente.findAll({
         where: {

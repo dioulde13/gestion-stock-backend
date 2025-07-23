@@ -27,8 +27,6 @@ LigneAchat.belongsTo(Produit, { foreignKey: 'produitId' });
 Vente.hasMany(LigneVente, { foreignKey: 'venteId' });
 Achat.hasMany(LigneAchat, { foreignKey: 'achatId' });
 
-// Vente.hasMany(LigneVente, { foreignKey: 'venteId' });
-// LigneVente.belongsTo(Vente, { foreignKey: 'venteId' });
 
 Achat.hasMany(LigneAchat, { foreignKey: 'achatId' });
 LigneAchat.belongsTo(Achat, { foreignKey: 'achatId' });
