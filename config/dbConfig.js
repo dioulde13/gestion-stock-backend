@@ -13,4 +13,5 @@ const dbConfig = {
     idle: 10000
   }
 };
+// 30 secondes pour acquérir la connexion
 module.exports = dbConfig;
