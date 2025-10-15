@@ -24,7 +24,7 @@ const PayementCredit = sequelize.define('PayementCredit', {
 });
 
 PayementCredit.belongsTo(Utilisateur, { foreignKey: 'utilisateurId' });
-Credit.belongsTo(Credit, { foreignKey: 'creditId' });
+PayementCredit.belongsTo(Credit, { foreignKey: 'creditId' });
 
 
 module.exports = PayementCredit;

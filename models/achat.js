@@ -10,7 +10,7 @@ const Achat = sequelize.define('Achat', {
     primaryKey: true,
     autoIncrement: true,
   },
-   utilisateurId: {
+  utilisateurId: {
     type: DataTypes.INTEGER,
     allowNull: false,
   },
@@ -25,7 +25,12 @@ const Achat = sequelize.define('Achat', {
   total: {
     type: DataTypes.FLOAT,
     allowNull: false,
-  }
+  },
+  type: {
+    type: DataTypes.ENUM("ACHAT", "CREDIT"),
+    allowNull: false,
+    defaultValue: "ACHAT",
+  },
 }
 );
 

@@ -2,6 +2,8 @@ const { DataTypes } = require('sequelize');
 const sequelize = require('./sequelize');
 const Categorie = require('./categorie');
 const Utilisateur = require('./utilisateur');
+const Boutique = require('./boutique');
+
 
 const Produit = sequelize.define('Produit', {
   id: {
@@ -17,6 +19,10 @@ const Produit = sequelize.define('Produit', {
     type: DataTypes.INTEGER,
     allowNull: false,
   }, 
+   boutiqueId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+  },
   nom: {
     type: DataTypes.STRING,
     allowNull: false,
@@ -41,5 +47,6 @@ const Produit = sequelize.define('Produit', {
 
 Produit.belongsTo(Utilisateur, { foreignKey: 'utilisateurId' });
 Produit.belongsTo(Categorie, { foreignKey: 'categorieId' });
+Produit.belongsTo(Boutique, { foreignKey: 'boutiqueId' });
 
 module.exports = Produit;
