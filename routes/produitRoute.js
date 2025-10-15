@@ -6,14 +6,13 @@ const produitController = require('../controllers/produitController');
 router.post('/create', produitController.ajouterProduit);
 
 // Récupérer la liste des produits
-router.get('/liste', produitController.recupererProduits);
+router.get('/liste', produitController.recupererProduitsBoutique);
 
 router.get('/alert', produitController.produitsEnAlerteStock);
 
 // Modifier un produit
 router.put('/:id', produitController.modifierProduit);
 
-router.delete('/supprimer/:id', produitController.supprimerProduit);
-
+// router.delete('/supprimer/:id', produitController.supprimerProduit);
 
 module.exports = router;

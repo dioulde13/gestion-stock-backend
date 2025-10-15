@@ -1,6 +1,7 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('./sequelize');
 const Utilisateur = require('./utilisateur');
+const Client = require('./client');
 
 const Credit = sequelize.define('Credit', {
     id: {
@@ -12,11 +13,15 @@ const Credit = sequelize.define('Credit', {
         type: DataTypes.INTEGER,
         allowNull: false,
     },
-    reference: {
+    clientId: {
+        type: DataTypes.INTEGER,
+        allowNull: false,
+    },
+     description: {
         type: DataTypes.STRING,
         allowNull: false,
     },
-    nom: {
+    reference: {
         type: DataTypes.STRING,
         allowNull: false,
     },
@@ -28,20 +33,36 @@ const Credit = sequelize.define('Credit', {
         type: DataTypes.BIGINT,
         allowNull: false,
         defaultValue: 0,
-    }, // Nouveau champ
+    },
     montantRestant: {
         type: DataTypes.BIGINT,
         allowNull: false,
         defaultValue: 0
     },
-    type: {
-        type: DataTypes.ENUM("CASH", "OM"),
+     beneficeCredit: {
+        type: DataTypes.BIGINT,
         allowNull: false,
-        defaultValue: "CASH",
+        defaultValue: 0
     },
+    type: {
+        type: DataTypes.ENUM("SORTIE", "ENTRE", "ANNULEE"),
+        allowNull: false,
+        defaultValue: "SORTIE",
+    },
+    typeCredit: {
+        type: DataTypes.ENUM("ESPECE", "VENTE"),
+        allowNull: false,
+        defaultValue: "ESPECE",
+    },
+    status: {
+        type: DataTypes.ENUM("NON PAYER", "PAYER", "EN COURS"),
+        allowNull: false,
+        defaultValue: "NON PAYER",
+    }
 });
 
 Credit.belongsTo(Utilisateur, { foreignKey: 'utilisateurId' });
+Credit.belongsTo(Client, { foreignKey: 'clientId' });
 
 
 module.exports = Credit;

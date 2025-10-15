@@ -1,50 +1,284 @@
+// const Sequelize = require('sequelize');
+// const Produit = require('../models/produit');
+// const { Vente, LigneVente } = require('../models/relation');
+// const Utilisateur = require('../models/utilisateur');
+// const Client = require('../models/client');
+// const Credit = require('../models/credit');
+// const sequelize = require('../models/sequelize');
+// const Caisse = require('../models/caisse');
+
+// const creerVente = async (req, res) => {
+//     const t = await sequelize.transaction();
+//     try {
+//         const { utilisateurId, lignes, type = "ACHAT", clientId } = req.body;
+
+//         if (!["ACHAT", "CREDIT"].includes(type)) {
+//             throw new Error('Type de vente invalide. Doit être "ACHAT" ou "CREDIT".');
+//         }
+
+//         if (type === "CREDIT" && !clientId) {
+//             throw new Error('Le client est obligatoire pour une vente de type CREDIT.');
+//         }
+
+//         const utilisateur = await Utilisateur.findByPk(utilisateurId, { transaction: t });
+//         if (!utilisateur) {
+//             throw new Error('Utilisateur non trouvé.');
+//         }
+
+//         let totalVente = 0;
+//         let totalAchat = 0;
+//         for (const ligne of lignes) {
+//             if (!ligne.produitId || !ligne.quantite || !ligne.prix_vente) {
+//                 throw new Error('Chaque ligne doit contenir produitId, quantite, prix_vente.');
+//             }
+
+//             const produit = await Produit.findByPk(ligne.produitId, { transaction: t, lock: t.LOCK.UPDATE });
+//             if (!produit) {
+//                 throw new Error(`Produit ID ${ligne.produitId} non trouvé.`);
+//             }
+
+//             if (produit.stock_actuel < ligne.quantite) {
+//                 throw new Error(`Stock insuffisant pour le produit: ${produit.nom}, disponible: ${produit.stock_actuel}.`);
+//             }
+
+//             totalVente += ligne.quantite * ligne.prix_vente;
+//             totalAchat += ligne.quantite * produit.prix_achat;
+//         }
+
+//         const benefice = totalVente - totalAchat;
+
+//         const vente = await Vente.create({
+//             utilisateurId,
+//             clientId: clientId || null,
+//             total: totalVente,
+//             type
+//         }, { transaction: t });
+
+//         for (const ligne of lignes) {
+//             const produit = await Produit.findByPk(ligne.produitId, { transaction: t, lock: t.LOCK.UPDATE });
+
+//             await LigneVente.create({
+//                 venteId: vente.id,
+//                 produitId: ligne.produitId,
+//                 quantite: ligne.quantite,
+//                 prix_vente: ligne.prix_vente,
+//                 prix_achat: produit.prix_achat
+//             }, { transaction: t });
+
+//             // Mise à jour du stock
+//             await produit.update({
+//                 stock_actuel: produit.stock_actuel - ligne.quantite
+//             }, { transaction: t });
+//         }
+
+//         // === MISE A JOUR DES CAISSES ===
+//         // Toujours mettre à jour VALEUR_STOCK_PUR et VALEUR_STOCK
+//         let caisseValeurStockPur = await Caisse.findOne({
+//             where: { utilisateurId, type: "VALEUR_STOCK_PUR" },
+//             transaction: t
+//         });
+
+//         caisseValeurStockPur.solde_actuel -= totalAchat;
+//         await caisseValeurStockPur.save({ transaction: t });
+
+//         let caisseValeurStock = await Caisse.findOne({
+//             where: { utilisateurId, type: "VALEUR_STOCK" },
+//             transaction: t
+//         });
+
+//          let totalAchtBenefice = totalAchat + benefice;
+//         caisseValeurStock.solde_actuel += totalAchtBenefice;
+//         await caisseValeurStock.save({ transaction: t });
+
+//         if (type === "ACHAT") {
+//             // Vente encaissée
+//             let caissePrincipale = await Caisse.findOne({
+//                 where: { utilisateurId, type: "PRINCIPALE" },
+//                 transaction: t
+//             });
+//             caissePrincipale.solde_actuel += totalVente;
+//             await caissePrincipale.save({ transaction: t });
+
+//             // Caisse total
+//             let caisseSolde = await Caisse.findOne({
+//                 where: { utilisateurId, type: "CAISSE" },
+//                 transaction: t
+//             });
+
+//             caisseSolde.solde_actuel += totalVente;
+//             await caisseSolde.save({ transaction: t });
+
+
+//              let beneficeRealiser = await Caisse.findOne({
+//                 where: { utilisateurId, type: "BENEFICE" },
+//                 transaction: t
+//             });
+//             beneficeRealiser.solde_actuel += benefice;
+//             await beneficeRealiser.save({ transaction: t });
+
+//         } else if (type === "CREDIT") {
+//             // Vente à crédit → augmente le solde CREDIT_VENTE
+//             let caisseCredit = await Caisse.findOne({
+//                 where: { utilisateurId, type: "CREDIT_VENTE" },
+//                 transaction: t
+//             });
+
+//             caisseCredit.solde_actuel += totalVente;
+//             await caisseCredit.save({ transaction: t });
+
+//               let beneficeRealiserCredit = await Caisse.findOne({
+//                 where: { utilisateurId, type: "BENEFICE_CREDIT" },
+//                 transaction: t
+//             });
+
+//             beneficeRealiserCredit.solde_actuel += benefice;
+//             await beneficeRealiserCredit.save({ transaction: t });
+
+//             // Création du crédit lié au client
+//             const reference = `CR-${Date.now()}`;
+//             const client = await Client.findByPk(clientId, { transaction: t });
+//             if (!client) throw new Error("Client non trouvé pour créer le crédit.");
+
+//             await Credit.create({
+//                 utilisateurId,
+//                 reference,
+//                 description:"Vente",
+//                 nom: client.nom,
+//                 clientId: client.id,
+//                 montant: totalVente,
+//                 montantPaye: 0,
+//                 montantRestant: 0,
+//                 beneficeCredit: benefice,  
+//                 type: "SORTIE",
+//                 typeCredit: "VENTE"
+//             }, { transaction: t });
+//         }
+
+//         await t.commit();
+//         return res.status(201).json({
+//             message: 'Vente créée avec succès.',
+//             benefice
+//         });
+
+//     } catch (error) {
+//         await t.rollback();
+//         console.error("Erreur lors de la vente :", error);
+//         const message = error.message || 'Erreur interne du serveur.';
+//         return res.status(400).json({ message });
+//     }
+// };
+
+// module.exports = { creerVente };
+
 const Sequelize = require('sequelize');
 const Produit = require('../models/produit');
 const { Vente, LigneVente } = require('../models/relation');
-
+const Utilisateur = require('../models/utilisateur');
+const Client = require('../models/client');
 const sequelize = require('../models/sequelize');
+const Notification = require('../models/notification');
+const jwt = require('jsonwebtoken');
+const Role = require('../models/role');
+const { getCaisseByType } = require('../utils/caisseUtils');
+const Boutique = require('../models/boutique');
+
 
 const creerVente = async (req, res) => {
     const t = await sequelize.transaction();
     try {
-        const {utilisateurId, lignes} = req.body;
-        console.log(req.body);
-        // if (!lignes || !utilisateurId || !Array.isArray(lignes) || lignes.length === 0) {
-        //     await t.rollback();
-        //     return res.status(400).json({ message: 'Les lignes de vente sont obligatoires.' });
-        // }
+        // 🔐 Vérification et décodage du token
+        const authHeader = req.headers["authorization"];
+        if (!authHeader) {
+            return res.status(403).json({
+                success: false,
+                message: "Accès refusé. Aucun token trouvé.",
+            });
+        }
 
-        const totals = await Promise.all(lignes.map(async ligne => {
-            if (!ligne.produitId || !ligne.quantite || !ligne.prix_vente) {
-                throw new Error('Chaque ligne doit contenir produitId, quantite, prix_vente.');
+        const token = authHeader.split(" ")[1];
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+        const { lignes, type = "ACHAT", clientId, clientNom, clientTelephone } = req.body;
+
+        if (!["ACHAT", "CREDIT"].includes(type)) {
+            throw new Error('Type de vente invalide. Doit être "ACHAT" ou "CREDIT".');
+        }
+
+        // ✅ Récupération de l'utilisateur connecté
+        const utilisateur = await Utilisateur.findByPk(decoded.id, { transaction: t });
+        if (!utilisateur) throw new Error('Utilisateur non trouvé.');
+        if (!utilisateur.boutiqueId) throw new Error("L'utilisateur n'est associé à aucune boutique.");
+
+        let clientAssocie = null;
+
+        // ✅ Gestion du client pour une vente à crédit
+        if (type === "CREDIT") {
+            if (clientId) {
+                clientAssocie = await Client.findByPk(clientId, { transaction: t });
+                if (!clientAssocie) throw new Error('Client non trouvé.');
+            } else {
+                if (!clientNom || !clientTelephone) {
+                    throw new Error("Nom et téléphone du client requis pour une vente à crédit.");
+                }
+
+                clientAssocie = await Client.create({
+                    nom: clientNom,
+                    telephone: clientTelephone,
+                    utilisateurId: utilisateur.id,
+                    boutiqueId: utilisateur.boutiqueId
+                }, { transaction: t });
             }
+        }
 
-            const produit = await Produit.findByPk(ligne.produitId, { transaction: t, lock: t.LOCK.UPDATE });
-
-            if (!produit) {
-                throw new Error(`Produit ID ${ligne.produitId} non trouvé.`);
-            }
-
-            if (produit.stock_actuel < ligne.quantite) {
-                throw new Error(`Stock insuffisant pour le produit: ${produit.nom}, disponible: ${produit.stock_actuel}.`);
-            }
-
-            return ligne.quantite * ligne.prix_vente;
-        }));
-
-        const total = totals.reduce((acc, val) => acc + val, 0);
-
-        const vente = await Vente.create({ utilisateurId, total }, { transaction: t });
+        let totalVente = 0;
+        let totalAchat = 0;
 
         for (const ligne of lignes) {
-            const produit = await Produit.findByPk(ligne.produitId, { transaction: t, lock: t.LOCK.UPDATE });
-            console.log(produit);
+            if (!ligne.produitId || !ligne.quantite || !ligne.prix_vente) {
+                throw new Error('Chaque ligne doit contenir produitId, quantite et prix_vente.');
+            }
+
+            const produit = await Produit.findByPk(ligne.produitId, {
+                transaction: t,
+                lock: t.LOCK.UPDATE
+            });
+
+            if (!produit) throw new Error(`Produit ID ${ligne.produitId} non trouvé.`);
+            if (produit.boutiqueId !== utilisateur.boutiqueId) {
+                throw new Error(`Vous ne pouvez pas vendre un produit d'une autre boutique.`);
+            }
+            if (produit.stock_actuel < ligne.quantite) {
+                throw new Error(`Stock insuffisant pour ${produit.nom}, disponible: ${produit.stock_actuel}.`);
+            }
+
+            totalVente += ligne.quantite * ligne.prix_vente;
+            totalAchat += ligne.quantite * produit.prix_achat;
+        }
+
+        const benefice = totalVente - totalAchat;
+
+        // ✅ Création de la vente
+        const vente = await Vente.create({
+            utilisateurId: utilisateur.id,
+            boutiqueId: utilisateur.boutiqueId,
+            clientId: clientAssocie ? clientAssocie.id : null,
+            total: totalVente,
+            type
+        }, { transaction: t });
+
+        // ✅ Lignes de vente et mise à jour du stock
+        for (const ligne of lignes) {
+            const produit = await Produit.findByPk(ligne.produitId, {
+                transaction: t,
+                lock: t.LOCK.UPDATE
+            });
+
             await LigneVente.create({
                 venteId: vente.id,
                 produitId: ligne.produitId,
                 quantite: ligne.quantite,
                 prix_vente: ligne.prix_vente,
-                prix_achat: produit.prix_achat // <-- Enregistrement du prix d'achat à l'instant T
+                prix_achat: produit.prix_achat
             }, { transaction: t });
 
             await produit.update({
@@ -52,32 +286,676 @@ const creerVente = async (req, res) => {
             }, { transaction: t });
         }
 
+        // === 💰 Mise à jour des caisses ===
+        const caisseValeurStockPur = await getCaisseByType("VALEUR_STOCK_PUR", utilisateur.id, t);
+        caisseValeurStockPur.solde_actuel -= totalAchat;
+        await caisseValeurStockPur.save({ transaction: t });
+
+        const caisseValeurStock = await getCaisseByType("VALEUR_STOCK", utilisateur.id, t);
+        caisseValeurStock.solde_actuel += totalAchat + benefice;
+        await caisseValeurStock.save({ transaction: t });
+
+        let nouveauSoldePrincipale = 0;
+        let nouveauSoldeGlobale = 0;
+        let nouveauBenefice = 0;
+
+        if (type === "ACHAT") {
+            const caissePrincipale = await getCaisseByType("PRINCIPALE", utilisateur.id, t);
+            caissePrincipale.solde_actuel += totalVente;
+            await caissePrincipale.save({ transaction: t });
+            nouveauSoldePrincipale = caissePrincipale.solde_actuel;
+
+            const caisseSolde = await getCaisseByType("CAISSE", utilisateur.id, t);
+            caisseSolde.solde_actuel += totalVente;
+            await caisseSolde.save({ transaction: t });
+            nouveauSoldeGlobale = caisseSolde.solde_actuel;
+
+            const beneficeRealiser = await getCaisseByType("BENEFICE", utilisateur.id, t);
+            beneficeRealiser.solde_actuel += benefice;
+            await beneficeRealiser.save({ transaction: t });
+            nouveauBenefice = beneficeRealiser.solde_actuel;
+        } else if (type === "CREDIT") {
+            const caisseCredit = await getCaisseByType("CREDIT_VENTE", utilisateur.id, t);
+            caisseCredit.solde_actuel += totalVente;
+            await caisseCredit.save({ transaction: t });
+            nouveauSoldePrincipale = caisseCredit.solde_actuel;
+
+            const beneficeRealiserCredit = await getCaisseByType("BENEFICE_CREDIT", utilisateur.id, t);
+            beneficeRealiserCredit.solde_actuel += benefice;
+            await beneficeRealiserCredit.save({ transaction: t });
+            nouveauBenefice = beneficeRealiserCredit.solde_actuel;
+        }
+
+        // === 💰 Mise à jour VALEUR_STOCK_PUR pour tous les vendeurs et admin de la boutique ===
+        const boutique = await Boutique.findByPk(utilisateur.boutiqueId, { transaction: t });
+        if (boutique) {
+            const vendeursBoutique = await Utilisateur.findAll({
+                where: { boutiqueId: boutique.id },
+                transaction: t
+            });
+
+            for (const vendeur of vendeursBoutique) {
+                const caisseVSP = await getCaisseByType("VALEUR_STOCK_PUR", vendeur.id, t);
+                if (caisseVSP) {
+                    caisseVSP.solde_actuel -= totalAchat;
+                    await caisseVSP.save({ transaction: t });
+                }
+            }
+
+            if (boutique.utilisateurId) {
+                const adminBoutique = await Utilisateur.findByPk(boutique.utilisateurId, { transaction: t });
+                if (adminBoutique && !vendeursBoutique.some(v => v.id === adminBoutique.id)) {
+                    const caisseAdminVSP = await getCaisseByType("VALEUR_STOCK_PUR", adminBoutique.id, t);
+                    if (caisseAdminVSP) {
+                        caisseAdminVSP.solde_actuel -= totalAchat;
+                        await caisseAdminVSP.save({ transaction: t });
+                    }
+                }
+            }
+        }
+
         await t.commit();
-        return res.status(201).json({ message: 'Vente créée avec succès.', venteId: vente.id });
+
+        // === 🔔 Notifications ===
+        const io = req.app.get('io');
+        const formatMontant = (montant) =>
+            new Intl.NumberFormat('fr-FR', {
+                style: 'currency',
+                currency: 'GNF',
+                minimumFractionDigits: 0
+            }).format(montant);
+
+        const notif = await Notification.create({
+            utilisateurId: utilisateur.id,
+            message: `Vente enregistrée: ${formatMontant(totalVente)}.`,
+            type: 'vente',
+            montant: totalVente,
+            benefice,
+            read: false
+        });
+
+        if (io) io.to("user_" + utilisateur.id).emit('notification', notif);
+
+        const notifGlobale = await Notification.create({
+            utilisateurId: null,
+            message: `${utilisateur.nom} a fait une vente de ${formatMontant(totalVente)}.`,
+            type: 'globale',
+            montant: totalVente,
+            benefice,
+            read: false
+        });
+
+        if (io) io.emit('notificationGlobale', {
+            message: notifGlobale.message,
+            timestamp: notifGlobale.createdAt
+        });
+
+        if (io) {
+            io.emit('caisseMisAJour', {
+                utilisateurId: utilisateur.id,
+                nomUtilisateur: utilisateur.nom,
+                soldePrincipale: formatMontant(nouveauSoldePrincipale),
+                soldeGlobale: formatMontant(nouveauSoldeGlobale),
+                benefice: formatMontant(nouveauBenefice),
+                timestamp: new Date()
+            });
+        }
+
+        return res.status(201).json({
+            success: true,
+            message: 'Vente créée avec succès.',
+            benefice,
+            client: clientAssocie || null
+        });
 
     } catch (error) {
-        await t.rollback();
+        if (!t.finished) await t.rollback();
         console.error("Erreur lors de la vente :", error);
-        const message = error.message || 'Erreur interne du serveur.';
-        return res.status(400).json({ message });
+        return res.status(400).json({
+            success: false,
+            message: error.message || 'Erreur interne du serveur.'
+        });
     }
 };
+
+
+// const creerVente = async (req, res) => {
+//     const t = await sequelize.transaction();
+//     try {
+//         // 🔐 Vérification et décodage du token
+//         const authHeader = req.headers["authorization"];
+//         if (!authHeader) {
+//             return res.status(403).json({
+//                 success: false,
+//                 message: "Accès refusé. Aucun token trouvé.",
+//             });
+//         }
+
+//         const token = authHeader.split(" ")[1];
+//         const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+//         const { lignes, type = "ACHAT", clientId, clientNom, clientTelephone } = req.body;
+
+//         if (!["ACHAT", "CREDIT"].includes(type)) {
+//             throw new Error('Type de vente invalide. Doit être "ACHAT" ou "CREDIT".');
+//         }
+
+//         // ✅ Récupération de l'utilisateur connecté
+//         const utilisateur = await Utilisateur.findByPk(decoded.id, { transaction: t });
+//         if (!utilisateur) throw new Error('Utilisateur non trouvé.');
+//         if (!utilisateur.boutiqueId) throw new Error("L'utilisateur n'est associé à aucune boutique.");
+
+//         let clientAssocie = null;
+
+//         // ✅ Gestion du client pour une vente à crédit
+//         if (type === "CREDIT") {
+//             if (clientId) {
+//                 clientAssocie = await Client.findByPk(clientId, { transaction: t });
+//                 if (!clientAssocie) throw new Error('Client non trouvé.');
+//             } else {
+//                 if (!clientNom || !clientTelephone) {
+//                     throw new Error("Nom et téléphone du client requis pour une vente à crédit.");
+//                 }
+
+//                 clientAssocie = await Client.create({
+//                     nom: clientNom,
+//                     telephone: clientTelephone,
+//                     utilisateurId: utilisateur.id,
+//                     boutiqueId: utilisateur.boutiqueId
+//                 }, { transaction: t });
+//             }
+//         }
+
+//         let totalVente = 0;
+//         let totalAchat = 0;
+
+//         for (const ligne of lignes) {
+//             if (!ligne.produitId || !ligne.quantite || !ligne.prix_vente) {
+//                 throw new Error('Chaque ligne doit contenir produitId, quantite et prix_vente.');
+//             }
+
+//             const produit = await Produit.findByPk(ligne.produitId, {
+//                 transaction: t,
+//                 lock: t.LOCK.UPDATE
+//             });
+
+//             if (!produit) throw new Error(`Produit ID ${ligne.produitId} non trouvé.`);
+//             if (produit.boutiqueId !== utilisateur.boutiqueId) {
+//                 throw new Error(`Vous ne pouvez pas vendre un produit d'une autre boutique.`);
+//             }
+//             if (produit.stock_actuel < ligne.quantite) {
+//                 throw new Error(`Stock insuffisant pour ${produit.nom}, disponible: ${produit.stock_actuel}.`);
+//             }
+
+//             totalVente += ligne.quantite * ligne.prix_vente;
+//             totalAchat += ligne.quantite * produit.prix_achat;
+//         }
+
+//         const benefice = totalVente - totalAchat;
+
+//         // ✅ Création de la vente
+//         const vente = await Vente.create({
+//             utilisateurId: utilisateur.id,
+//             boutiqueId: utilisateur.boutiqueId,
+//             clientId: clientAssocie ? clientAssocie.id : null,
+//             total: totalVente,
+//             type
+//         }, { transaction: t });
+
+//         // ✅ Lignes de vente et mise à jour du stock
+//         for (const ligne of lignes) {
+//             const produit = await Produit.findByPk(ligne.produitId, {
+//                 transaction: t,
+//                 lock: t.LOCK.UPDATE
+//             });
+
+//             await LigneVente.create({
+//                 venteId: vente.id,
+//                 produitId: ligne.produitId,
+//                 quantite: ligne.quantite,
+//                 prix_vente: ligne.prix_vente,
+//                 prix_achat: produit.prix_achat
+//             }, { transaction: t });
+
+//             await produit.update({
+//                 stock_actuel: produit.stock_actuel - ligne.quantite
+//             }, { transaction: t });
+//         }
+
+//         // === 💰 Mise à jour des caisses ===
+//         const caisseValeurStockPur = await getCaisseByType("VALEUR_STOCK_PUR", utilisateur.id, t);
+//         caisseValeurStockPur.solde_actuel -= totalAchat;
+//         await caisseValeurStockPur.save({ transaction: t });
+
+//         const caisseValeurStock = await getCaisseByType("VALEUR_STOCK", utilisateur.id, t);
+//         caisseValeurStock.solde_actuel += totalAchat + benefice;
+//         await caisseValeurStock.save({ transaction: t });
+
+//         let nouveauSoldePrincipale = 0;
+//         let nouveauSoldeGlobale = 0;
+//         let nouveauBenefice = 0;
+
+//         if (type === "ACHAT") {
+//             const caissePrincipale = await getCaisseByType("PRINCIPALE", utilisateur.id, t);
+//             caissePrincipale.solde_actuel += totalVente;
+//             await caissePrincipale.save({ transaction: t });
+//             nouveauSoldePrincipale = caissePrincipale.solde_actuel;
+
+//             const caisseSolde = await getCaisseByType("CAISSE", utilisateur.id, t);
+//             caisseSolde.solde_actuel += totalVente;
+//             await caisseSolde.save({ transaction: t });
+//             nouveauSoldeGlobale = caisseSolde.solde_actuel;
+
+//             const beneficeRealiser = await getCaisseByType("BENEFICE", utilisateur.id, t);
+//             beneficeRealiser.solde_actuel += benefice;
+//             await beneficeRealiser.save({ transaction: t });
+//             nouveauBenefice = beneficeRealiser.solde_actuel;
+//         } else if (type === "CREDIT") {
+//             const caisseCredit = await getCaisseByType("CREDIT_VENTE", utilisateur.id, t);
+//             caisseCredit.solde_actuel += totalVente;
+//             await caisseCredit.save({ transaction: t });
+//             nouveauSoldePrincipale = caisseCredit.solde_actuel;
+
+//             const beneficeRealiserCredit = await getCaisseByType("BENEFICE_CREDIT", utilisateur.id, t);
+//             beneficeRealiserCredit.solde_actuel += benefice;
+//             await beneficeRealiserCredit.save({ transaction: t });
+//             nouveauBenefice = beneficeRealiserCredit.solde_actuel;
+//         }
+
+//         // === 💰 Mise à jour VALEUR_STOCK_PUR pour tous les vendeurs et admin de la boutique ===
+//         const boutique = await Boutique.findByPk(utilisateur.boutiqueId, { transaction: t });
+//         if (boutique) {
+//             const vendeursBoutique = await Utilisateur.findAll({
+//                 where: { boutiqueId: boutique.id },
+//                 transaction: t
+//             });
+
+//             for (const vendeur of vendeursBoutique) {
+//                 const caisseVSP = await getCaisseByType("VALEUR_STOCK_PUR", vendeur.id, t);
+//                 if (caisseVSP) {
+//                     caisseVSP.solde_actuel -= totalAchat;
+//                     await caisseVSP.save({ transaction: t });
+//                 }
+//             }
+
+//             if (boutique.utilisateurId) {
+//                 const adminBoutique = await Utilisateur.findByPk(boutique.utilisateurId, { transaction: t });
+//                 if (adminBoutique && !vendeursBoutique.some(v => v.id === adminBoutique.id)) {
+//                     const caisseAdminVSP = await getCaisseByType("VALEUR_STOCK_PUR", adminBoutique.id, t);
+//                     if (caisseAdminVSP) {
+//                         caisseAdminVSP.solde_actuel -= totalAchat;
+//                         await caisseAdminVSP.save({ transaction: t });
+//                     }
+//                 }
+//             }
+//         }
+
+//         await t.commit();
+
+//         // === 🔔 Notifications ===
+//         const io = req.app.get('io');
+//         const formatMontant = (montant) =>
+//             new Intl.NumberFormat('fr-FR', {
+//                 style: 'currency',
+//                 currency: 'GNF',
+//                 minimumFractionDigits: 0
+//             }).format(montant);
+
+//         const notif = await Notification.create({
+//             utilisateurId: utilisateur.id,
+//             message: `Vente enregistrée: ${formatMontant(totalVente)}.`,
+//             type: 'vente',
+//             montant: totalVente,
+//             benefice,
+//             read: false
+//         });
+
+//         if (io) io.to("user_" + utilisateur.id).emit('notification', notif);
+
+//         const notifGlobale = await Notification.create({
+//             utilisateurId: null,
+//             message: `${utilisateur.nom} a fait une vente de ${formatMontant(totalVente)}.`,
+//             type: 'globale',
+//             montant: totalVente,
+//             benefice,
+//             read: false
+//         });
+
+//         if (io) io.emit('notificationGlobale', {
+//             message: notifGlobale.message,
+//             timestamp: notifGlobale.createdAt
+//         });
+
+//         if (io) {
+//             io.emit('caisseMisAJour', {
+//                 utilisateurId: utilisateur.id,
+//                 nomUtilisateur: utilisateur.nom,
+//                 soldePrincipale: formatMontant(nouveauSoldePrincipale),
+//                 soldeGlobale: formatMontant(nouveauSoldeGlobale),
+//                 benefice: formatMontant(nouveauBenefice),
+//                 timestamp: new Date()
+//             });
+//         }
+
+//         return res.status(201).json({
+//             success: true,
+//             message: 'Vente créée avec succès.',
+//             benefice,
+//             client: clientAssocie || null
+//         });
+
+//     } catch (error) {
+//         if (!t.finished) await t.rollback();
+//         console.error("Erreur lors de la vente :", error);
+//         return res.status(400).json({
+//             success: false,
+//             message: error.message || 'Erreur interne du serveur.'
+//         });
+//     }
+// };
+
+
+// const { Op } = require('sequelize');
+
+// const recupererVentesFiltres = async (req, res) => {
+//   try {
+//     // 🔐 Vérification du token
+//     const authHeader = req.headers["authorization"];
+//     if (!authHeader) {
+//       return res.status(403).json({ success: false, message: "Accès refusé. Aucun token trouvé." });
+//     }
+
+//     const token = authHeader.split(" ")[1];
+//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+//     // ✅ Récupération de l'utilisateur
+//     const utilisateur = await Utilisateur.findByPk(decoded.id, {
+//       include: [
+//         { model: Role },
+//         { model: Boutique, as: "BoutiquesCreees" } // boutiques créées par l'admin
+//       ]
+//     });
+
+//     if (!utilisateur) return res.status(404).json({ message: 'Utilisateur non trouvé.' });
+
+//     // 🔹 Filtre de base
+//     let whereClause = {};
+
+//     // 🔹 Filtres supplémentaires depuis la requête
+//     const { startDate, endDate, page = 1, limit = 10 } = req.query;
+
+//     if (startDate && endDate) {
+//       whereClause.date = { [Op.between]: [new Date(startDate), new Date(endDate)] };
+//     }
+
+//     const offset = (Number(page) - 1) * Number(limit);
+
+//     // 🔹 Récupération des ventes
+//     const { count, rows: ventes } = await Vente.findAndCountAll({
+//       where: whereClause,
+//       include: [
+//         {
+//           model: LigneVente,
+//           include: [
+//             { model: Produit, attributes: ['id', 'nom', 'prix_achat', 'prix_vente', 'boutiqueId'] }
+//           ]
+//         },
+//         {
+//           model: Utilisateur,
+//           attributes: ['id', 'nom'],
+//           include: [
+//             { model: Boutique, as: "Boutique" } // association avec la boutique
+//           ]
+//         }
+//       ],
+//       order: [['date', 'DESC']],
+//       offset,
+//       limit: Number(limit),
+//       distinct: true // pour count correct si jointures
+//     });
+
+//     // 🔹 Calcul des totaux
+//     let totalAchats = 0, totalVentes = 0;
+//     ventes.forEach(v => {
+//       v.LigneVentes.forEach(l => {
+//         totalAchats += l.quantite * (l.prix_achat ?? 0);
+//         totalVentes += l.quantite * (l.prix_vente ?? 0);
+//       });
+//     });
+
+//     // 🔹 Retour
+//     res.status(200).json({
+//       ventes,
+//       totalAchats,
+//       totalVentes,
+//       totalPages: Math.ceil(count / limit),
+//       currentPage: Number(page),
+//       totalItems: count
+//     });
+
+//   } catch (error) {
+//     console.error(error);
+//     return res.status(500).json({ message: 'Erreur interne du serveur.', error: error.message });
+//   }
+// };
+
+
+
+// const recupererVentesFiltres = async (req, res) => {
+//   try {
+//     const authHeader = req.headers["authorization"];
+//     if (!authHeader) return res.status(403).json({ success: false, message: "Accès refusé. Aucun token trouvé." });
+
+//     const token = authHeader.split(" ")[1];
+//     const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+//     const utilisateur = await Utilisateur.findByPk(decoded.id, {
+//       include: [{ model: Role }, { model: Boutique, as: "BoutiquesCreees" }]
+//     });
+
+//     if (!utilisateur) return res.status(404).json({ message: 'Utilisateur non trouvé.' });
+
+//     // Filtre de base
+//     let whereClause = {};
+
+//     // Filtrage admin ou vendeur
+//     if (utilisateur.Role && utilisateur.Role.nom.toUpperCase() === "ADMIN") {
+//       const boutiqueIds = (utilisateur.BoutiquesCreees || []).map(b => b.id);
+//       whereClause['$Utilisateur.boutiqueId$'] = boutiqueIds;
+//     } else {
+//       whereClause.utilisateurId = utilisateur.id;
+//     }
+
+//     // 🔹 Filtres supplémentaires
+//     const { startDate, endDate, vendeurId, page = 1, limit = 10 } = req.query;
+
+//     if (startDate && endDate) {
+//       whereClause.date = { [Op.between]: [new Date(startDate), new Date(endDate)] };
+//     }
+
+//     if (vendeurId) {
+//       whereClause.utilisateurId = Number(vendeurId);
+//     }
+
+//     const offset = (Number(page) - 1) * Number(limit);
+
+//     const { count, rows: ventes } = await Vente.findAndCountAll({
+//       where: whereClause,
+//       include: [
+//         { model: LigneVente, include: [{ model: Produit, attributes: ['id', 'nom', 'prix_achat', 'prix_vente', 'boutiqueId'] }] },
+//         { model: Utilisateur, attributes: ['id', 'nom'], include: [{ model: Boutique, as: "Boutique" }] }
+//       ],
+//       order: [['date', 'DESC']],
+//       offset,
+//       limit: Number(limit),
+//     });
+
+//     // Calcul total
+//     let totalAchats = 0, totalVentes = 0;
+//     ventes.forEach(v => {
+//       v.LigneVentes.forEach(l => {
+//         totalAchats += l.quantite * (l.prix_achat ?? 0);
+//         totalVentes += l.quantite * l.prix_vente;
+//       });
+//     });
+
+//     res.status(200).json({
+//       ventes,
+//       totalAchats,
+//       totalVentes,
+//       totalPages: Math.ceil(count / limit),
+//       currentPage: Number(page),
+//       totalItems: count
+//     });
+
+//   } catch (error) {
+//     console.error(error);
+//     return res.status(500).json({ message: 'Erreur interne du serveur.' });
+//   }
+// };
+
+
 
 const recupererVentes = async (req, res) => {
     try {
+        // 🔐 Récupération du token
+        const authHeader = req.headers["authorization"];
+        if (!authHeader) {
+            return res.status(403).json({ success: false, message: "Accès refusé. Aucun token trouvé." });
+        }
+
+        const token = authHeader.split(" ")[1];
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+        // ✅ Récupération de l'utilisateur avec ses relations
+        const utilisateur = await Utilisateur.findByPk(decoded.id, {
+            include: [
+                { model: Role },
+                { model: Boutique, as: "BoutiquesCreees" } // admin peut avoir plusieurs boutiques
+            ]
+        });
+
+        if (!utilisateur) {
+            return res.status(404).json({ message: 'Utilisateur non trouvé.' });
+        }
+
+        // ✅ Préparer le filtre
+        let whereClause = {};
+
+        if (utilisateur.Role && utilisateur.Role.nom.toUpperCase() === "ADMIN") {
+            // Admin : toutes les ventes des vendeurs de ses boutiques
+            const boutiqueIds = (utilisateur.BoutiquesCreees || []).map(b => b.id);
+            whereClause['$Utilisateur.boutiqueId$'] = boutiqueIds;
+        } else {
+            // Vendeur : uniquement ses ventes
+            whereClause.utilisateurId = utilisateur.id;
+        }
+
+        // ✅ Récupération des ventes
         const ventes = await Vente.findAll({
-            include: [{
-                model: LigneVente,
-                include: [{ model: Produit, attributes: ['id', 'nom', 'prix_achat'] }]
-            }],
+            where: whereClause,
+            include: [
+                {
+                    model: LigneVente,
+                    include: [
+                        { model: Produit, attributes: ['id', 'nom', 'prix_achat', 'prix_vente', 'boutiqueId'] }
+                    ]
+                },
+                {
+                    model: Utilisateur,
+                    attributes: ['id', 'nom'],  // ← on ajoute 'nom' ici pour récupérer le nom du vendeur
+                    include: [{ model: Boutique, as: "Boutique" }]
+                }
+            ],
             order: [['date', 'DESC']]
         });
+
         return res.status(200).json(ventes);
+
     } catch (error) {
         console.error('Erreur lors de la récupération des ventes :', error);
+        if (error.name === 'JsonWebTokenError') {
+            return res.status(401).json({ message: 'Token invalide.' });
+        }
+        if (error.name === 'TokenExpiredError') {
+            return res.status(401).json({ message: 'Token expiré.' });
+        }
         return res.status(500).json({ message: 'Erreur interne du serveur.' });
     }
 };
+
+
+
+// const recupererVentes = async (req, res) => {
+//     try {
+//         // 🔐 Récupération du token
+//         const authHeader = req.headers["authorization"];
+//         if (!authHeader) {
+//             return res.status(403).json({ success: false, message: "Accès refusé. Aucun token trouvé." });
+//         }
+
+//         const token = authHeader.split(" ")[1];
+//         const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+//         // ✅ Récupération de l'utilisateur avec ses relations
+//         const utilisateur = await Utilisateur.findByPk(decoded.id, {
+//             include: [
+//                 { model: Role },
+//                 { model: Boutique, as: "BoutiquesCreees" } // admin peut avoir plusieurs boutiques
+//             ]
+//         });
+
+//         if (!utilisateur) {
+//             return res.status(404).json({ message: 'Utilisateur non trouvé.' });
+//         }
+
+//         // ✅ Préparer le filtre
+//         let whereClause = {};
+
+//         if (utilisateur.Role && utilisateur.Role.nom.toUpperCase() === "ADMIN") {
+//             // Admin : toutes les ventes des vendeurs de ses boutiques
+//             const boutiqueIds = (utilisateur.BoutiquesCreees || []).map(b => b.id);
+
+//             // Filtrage via la relation Utilisateur -> boutique
+//             whereClause['$Utilisateur.boutiqueId$'] = boutiqueIds;
+//         } else {
+//             // Vendeur : uniquement ses ventes
+//             whereClause.utilisateurId = utilisateur.id;
+//         }
+
+//         // ✅ Récupération des ventes
+//         const ventes = await Vente.findAll({
+//             where: whereClause,
+//             include: [
+//                 {
+//                     model: LigneVente,
+//                     include: [
+//                         { model: Produit, attributes: ['id', 'nom', 'prix_achat', 'prix_vente', 'boutiqueId'] }
+//                     ]
+//                 },
+//                 {
+//                     model: Utilisateur,
+//                     attributes: ['id', 'nom', 'boutiqueId'],
+//                     include: [{ model: Boutique, as: "Boutique" }]
+//                 }
+//             ],
+//             order: [['date', 'DESC']]
+//         });
+
+//         return res.status(200).json(ventes);
+
+//     } catch (error) {
+//         console.error('Erreur lors de la récupération des ventes :', error);
+//         if (error.name === 'JsonWebTokenError') {
+//             return res.status(401).json({ message: 'Token invalide.' });
+//         }
+//         if (error.name === 'TokenExpiredError') {
+//             return res.status(401).json({ message: 'Token expiré.' });
+//         }
+//         return res.status(500).json({ message: 'Erreur interne du serveur.' });
+//     }
+// };
+
 
 const consulterVente = async (req, res) => {
     try {

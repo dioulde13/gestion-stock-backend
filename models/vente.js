@@ -1,6 +1,7 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("./sequelize");
 const Utilisateur = require('./utilisateur');
+const Client = require('./client');
 
 const Vente = sequelize.define('Vente', {
   id: {
@@ -12,6 +13,10 @@ const Vente = sequelize.define('Vente', {
     type: DataTypes.INTEGER,
     allowNull: false,
   },
+  clientId: {
+    type: DataTypes.INTEGER,
+    allowNull: true, // le client n'est plus obligatoire
+  },
   date: {
     type: DataTypes.DATE,
     defaultValue: DataTypes.NOW,
@@ -19,9 +24,16 @@ const Vente = sequelize.define('Vente', {
   total: {
     type: DataTypes.FLOAT,
     allowNull: false,
-  }
+  },
+  type: {
+    type: DataTypes.ENUM("ACHAT", "CREDIT"),
+    allowNull: false,
+    defaultValue: "ACHAT",
+  },
 });
 
+// Relations
 Vente.belongsTo(Utilisateur, { foreignKey: 'utilisateurId' });
+Vente.belongsTo(Client, { foreignKey: 'clientId', allowNull: true }); // relation optionnelle
 
 module.exports = Vente;
