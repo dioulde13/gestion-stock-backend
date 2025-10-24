@@ -1,7 +1,7 @@
 const { DataTypes } = require('sequelize');
 const sequelize = require('./sequelize');
 const Utilisateur = require('./utilisateur');
-const Boutique = require('./boutique'); // 🔥 à importer
+const Boutique = require('./boutique');
 
 const Client = sequelize.define('Client', {
   id: {

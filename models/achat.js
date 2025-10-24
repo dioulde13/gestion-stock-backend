@@ -31,6 +31,11 @@ const Achat = sequelize.define('Achat', {
     allowNull: false,
     defaultValue: "ACHAT",
   },
+   status: {
+    type: DataTypes.ENUM("VALIDER", "ANNULER"),
+    allowNull: false,
+    defaultValue: "VALIDER",
+  },
 }
 );
 
