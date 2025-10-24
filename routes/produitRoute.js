@@ -12,6 +12,7 @@ router.get('/alert', produitController.produitsEnAlerteStock);
 
 // Modifier un produit
 router.put('/:id', produitController.modifierProduit);
+router.delete('/supprimer/:id', produitController.supprimerProduit);
 
 // router.delete('/supprimer/:id', produitController.supprimerProduit);
 

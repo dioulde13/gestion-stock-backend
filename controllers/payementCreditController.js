@@ -1,213 +1,435 @@
-const PayementCredit = require('../models/payementCredit');
-const Credit = require('../models/credit');
-const Utilisateur = require('../models/utilisateur');
-const sequelize = require('../models/sequelize');
-const Caisse = require('../models/caisse');
+const jwt = require("jsonwebtoken");
+const PayementCredit = require("../models/payementCredit");
+const Credit = require("../models/credit");
+const Utilisateur = require("../models/utilisateur");
+const Boutique = require("../models/boutique");
+const Role = require("../models/role");
+const Caisse = require("../models/caisse");
+const sequelize = require("../models/sequelize");
+const { getCaisseByType } = require("../utils/caisseUtils"); // ton utilitaire
 
-// Ajouter un paiement de crédit
+/**
+ * 🧠 Récupération utilisateur depuis le token
+ */
+const getUserFromToken = async (req, res) => {
+  const authHeader = req.headers["authorization"];
+  if (!authHeader)
+    return res.status(403).json({ message: "Aucun token trouvé." });
+
+  const token = authHeader.split(" ")[1];
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    const utilisateur = await Utilisateur.findByPk(decoded.id, {
+      include: [Role],
+    });
+    if (!utilisateur)
+      return res.status(404).json({ message: "Utilisateur non trouvé." });
+    return utilisateur;
+  } catch (error) {
+    res.status(401).json({ message: "Token invalide ou expiré." });
+    return null;
+  }
+};
+
+/**
+ * ➕ Ajouter un paiement de crédit
+ */
 const ajouterPayementCredit = async (req, res) => {
-    const t = await sequelize.transaction();
-    try {
-        const { reference, utilisateurId, montant } = req.body;
+  const utilisateur = await getUserFromToken(req, res);
+  if (!utilisateur) return;
 
-        // console.log("Request body:", req.body);
+  const t = await sequelize.transaction();
 
-        // Vérification des champs obligatoires
-        if (!reference || !utilisateurId || !montant) {
-            return res.status(400).json({ message: 'Tous les champs obligatoires doivent être remplis.' });
-        }
-
-        // Vérification crédit
-        const credit = await Credit.findOne({ where: { reference } });
-        if (!credit) {
-            console.log("Erreur : crédit non trouvé pour la référence", reference);
-            return res.status(404).json({ message: 'Crédit non trouvé pour cette référence.' });
-        }
-
-        // Vérification caisse principale
-        const caisseSolde = await Caisse.findOne({ where: { utilisateurId, type: 'CAISSE' }, transaction: t });
-        if (!caisseSolde) {
-            console.log("Erreur : caisse non trouvée pour utilisateur", utilisateurId);
-            return res.status(404).json({ message: 'Caisse non trouvée.' });
-        }
-
-        // Vérifier si le paiement ne dépasse pas le montant du crédit
-        const montantEnCoursPayement = montant + (credit.montantPaye ?? 0);
-        if (montantEnCoursPayement > credit.montant) {
-            return res.status(400).json({ message: 'Le montant dépasse le montant restant du crédit.' });
-        }
-
-        // Mise à jour du crédit
-        credit.montantPaye = (credit.montantPaye ?? 0) + montant;
-        credit.montantRestant = (credit.montant ?? 0) - credit.montantPaye;
-
-        // Enregistrer le paiement
-        const payement = await PayementCredit.create({
-            creditId: credit.id,
-            utilisateurId,
-            montant
-        }, { transaction: t });
-
-        // Gestion caisse en fonction du type de crédit
-        if (credit.type === "SORTIE") {
-            if (credit.typeCredit === "ESPECE") {
-                let caisseCreditEspece = await Caisse.findOne({
-                    where: { utilisateurId, type: "CREDIT_ESPECE" },
-                    transaction: t
-                });
-                caisseCreditEspece.solde_actuel -= montant;
-                await caisseCreditEspece.save({ transaction: t });
-            } else {
-                let caisseCredit = await Caisse.findOne({
-                    where: { utilisateurId, type: "CREDIT_VENTE" },
-                    transaction: t
-                });
-                caisseCredit.solde_actuel -= montant;
-                await caisseCredit.save({ transaction: t });
-            }
-
-            caisseSolde.solde_actuel += montant;
-            await caisseSolde.save({ transaction: t });
-
-        } else if (credit.type === "ENTRE") {
-            if (caisseSolde.solde_actuel < montant) {
-                throw new Error('Solde insuffisant dans la caisse.');
-            }
-
-            const caisseCredit = await Caisse.findOne({
-                where: { utilisateurId, type: 'CREDIT_ESPECE_ENTRE' },
-                transaction: t,
-            });
-
-            if (!caisseCredit || caisseCredit.solde_actuel < montant) {
-                throw new Error('Solde insuffisant dans la caisse de crédit.');
-            }
-
-            caisseCredit.solde_actuel -= montant;
-            await caisseCredit.save({ transaction: t });
-
-            caisseSolde.solde_actuel -= montant;
-            await caisseSolde.save({ transaction: t });
-        }
-
-        // Mise à jour du statut
-        if (credit.montantRestant === 0) {
-            credit.status = "PAYEE";
-        } else if (credit.montantPaye < credit.montant) {
-            credit.status = "EN COURS";
-        }
-
-        await credit.save({ transaction: t });
-
-        // Validation de la transaction
-        await t.commit();
-
-        // Réponse avec la référence du crédit
-        res.status(201).json({
-            message: 'Paiement enregistré avec succès.',
-            payement: { ...payement.toJSON(), reference: credit.reference }
-        });
-
-    } catch (error) {
-        await t.rollback();
-        console.error('Erreur lors de l\'ajout du paiement :', error);
-        res.status(500).json({ message: 'Erreur interne du serveur.' });
+  try {
+    const { reference, montant } = req.body;
+    if (!reference || !montant) {
+      throw new Error("Tous les champs obligatoires doivent être remplis.");
     }
+
+    // 🔍 Recherche du crédit correspondant
+    const credit = await Credit.findOne({
+      where: { reference },
+      transaction: t,
+    });
+    if (!credit) throw new Error("Crédit non trouvé pour cette référence.");
+
+    // 1️⃣ Récupération de la caisse principale du vendeur
+    const caisseVendeur = await getCaisseByType("CAISSE", utilisateur.id, t);
+    if (!caisseVendeur)
+      throw new Error("Caisse non trouvée pour cet utilisateur.");
+    if (montant > caisseVendeur.solde_actuel)
+      throw new Error("Solde insuffisant.");
+
+    // 2️⃣ Caisse de l’administrateur de la boutique
+    let caisseAdminBoutique = null;
+    const boutique = await Boutique.findByPk(utilisateur.boutiqueId, {
+      transaction: t,
+    });
+
+    if (boutique && boutique.utilisateurId) {
+      caisseAdminBoutique = await getCaisseByType(
+        "CAISSE",
+        boutique.utilisateurId,
+        t
+      );
+      if (!caisseAdminBoutique)
+        throw new Error("Caisse CAISSE de l’admin boutique introuvable.");
+    }
+
+    // 1️⃣ Caisse de l'utilisateur
+    const caisseCreditEspeceUtilisateur = await getCaisseByType(
+      "CREDIT_ESPECE",
+      utilisateur.id,
+      t
+    );
+    if (!caisseCreditEspeceUtilisateur)
+      throw new Error("Caisse credit espece non trouvée pour cet utilisateur.");
+
+    // 1️⃣ Caisse de l'utilisateur
+    const caisseCreditVenteUtilisateur = await getCaisseByType(
+      "CREDIT_VENTE",
+      utilisateur.id,
+      t
+    );
+    if (!caisseCreditVenteUtilisateur)
+      throw new Error("Caisse credit espece non trouvée pour cet utilisateur.");
+
+    // 2️⃣ Caisse de la boutique (admin principal)
+    let caisseCreditEspeceAdminBoutique = null;
+    if (boutique && boutique.utilisateurId) {
+      caisseCreditEspeceAdminBoutique = await getCaisseByType(
+        "CREDIT_ESPECE",
+        boutique.utilisateurId,
+        t
+      );
+    }
+
+    let caisseCreditVenteAdminBoutique = null;
+    if (boutique && boutique.utilisateurId) {
+      caisseCreditVenteAdminBoutique = await getCaisseByType(
+        "CREDIT_VENTE",
+        boutique.utilisateurId,
+        t
+      );
+    }
+
+    // 1️⃣ Caisse de l'utilisateur
+    const caisseCreditEspeceEntreUtilisateur = await getCaisseByType(
+      "CREDIT_ESPECE_ENTRE",
+      utilisateur.id,
+      t
+    );
+    if (!caisseCreditEspeceEntreUtilisateur)
+      throw new Error("Caisse credit espece non trouvée pour cet utilisateur.");
+
+    // 2️⃣ Caisse de la boutique (admin principal)
+    let caisseCreditEspeceEntreAdminBoutique = null;
+    if (boutique && boutique.utilisateurId) {
+      caisseCreditEspeceEntreAdminBoutique = await getCaisseByType(
+        "CREDIT_ESPECE_ENTRE",
+        boutique.utilisateurId,
+        t
+      );
+    }
+
+    // Vérification dépassement du crédit
+    if (credit.montantPaye + montant > credit.montant) {
+      throw new Error("Le montant dépasse le crédit restant.");
+    }
+
+    // 💰 Mise à jour du crédit
+    credit.montantPaye += montant;
+    credit.montantRestant = credit.montant - credit.montantPaye;
+
+    // 💾 Enregistrement du paiement
+    const payement = await PayementCredit.create(
+      {
+        creditId: credit.id,
+        utilisateurId: utilisateur.id,
+        montant,
+        boutiqueId: utilisateur.boutiqueId,
+        status:"VALIDER",
+      },
+      { transaction: t }
+    );
+
+    // 🧾 Gestion selon le type du crédit
+    if (credit.type === "SORTIE") {
+      if (credit.typeCredit === "ESPECE") {
+        // 💵 Cas d'un crédit en espèces
+        caisseCreditEspeceAdminBoutique.solde_actuel -= montant;
+        caisseCreditEspeceUtilisateur.solde_actuel -= montant;
+        caisseVendeur.solde_actuel += montant;
+        caisseAdminBoutique.solde_actuel += montant;
+
+        await Promise.all([
+          caisseCreditEspeceAdminBoutique.save({ transaction: t }),
+          caisseCreditEspeceUtilisateur.save({ transaction: t }),
+          caisseVendeur.save({ transaction: t }),
+          caisseAdminBoutique.save({ transaction: t }),
+        ]);
+      } else if (credit.typeCredit === "VENTE") {
+        // 🧾 Cas d'un crédit sur vente
+        caisseCreditVenteUtilisateur.solde_actuel -= montant;
+        caisseCreditVenteAdminBoutique.solde_actuel -= montant;
+        caisseVendeur.solde_actuel += montant;
+        caisseAdminBoutique.solde_actuel += montant;
+
+        await Promise.all([
+          caisseCreditVenteUtilisateur.save({ transaction: t }),
+          caisseCreditVenteAdminBoutique.save({ transaction: t }),
+          caisseVendeur.save({ transaction: t }),
+          caisseAdminBoutique.save({ transaction: t }),
+        ]);
+      }
+    } else if (credit.type === "ENTRE") {
+      caisseCreditEspeceEntreAdminBoutique.solde_actuel -= montant;
+      await caisseCreditEspeceEntreAdminBoutique.save({ transaction: t });
+
+
+      caisseAdminBoutique.solde_actuel -= montant;
+      await caisseAdminBoutique.save({ transaction: t });
+
+      caisseVendeur.solde_actuel -= montant;
+      await caisseVendeur.save({ transaction: t });
+
+      caisseCreditEspeceEntreUtilisateur.solde_actuel -= montant;
+      await caisseCreditEspeceEntreUtilisateur.save({ transaction: t });
+    }
+
+    // 📊 Mise à jour du statut du crédit
+    credit.status = credit.montantRestant === 0 ? "PAYER" : "EN COURS";
+    await credit.save({ transaction: t });
+
+    // ✅ Validation de la transaction avant toute opération externe
+    await t.commit();
+
+    // ⚡ Émission de l’événement Socket.io après validation
+    // ✅ 5️⃣ Émission Socket pour mettre à jour la caisse côté client
+    const io = req.app.get("io"); // 📢 récupérer l'instance Socket.io
+    io.emit("caisseMisAJour"); // 📢 avertir tous les clients connectés
+
+    // ✅ Réponse au client
+    return res.status(201).json({
+      message: "Paiement enregistré avec succès.",
+      payement: { ...payement.toJSON(), reference: credit.reference },
+    });
+  } catch (error) {
+    // 🔁 Rollback seulement si la transaction n’est pas déjà terminée
+    if (!t.finished) await t.rollback();
+
+    console.error("Erreur lors de l'ajout du paiement :", error);
+    return res.status(500).json({
+      message: error.message || "Erreur interne du serveur.",
+    });
+  }
 };
 
-
-// Récupérer tous les paiements
+/**
+ * 🔍 Récupérer tous les paiements (avec rôle)
+ */
 const recupererPayementsCredit = async (req, res) => {
-    try {
-        const payements = await PayementCredit.findAll({
-            include: [
-                { model: Utilisateur, attributes: ['id', 'nom', 'email'] },
-                { model: Credit, attributes: ['id', 'montant', 'montantPaye', 'montantRestant', 'reference'] }
-            ],
-            order: [['id', 'DESC']]
+  const utilisateur = await getUserFromToken(req, res);
+  if (!utilisateur) return;
+
+  try {
+    let whereClause = {};
+
+    if (utilisateur.Role.nom === "SUPERADMIN") {
+      whereClause = {};
+    } else if (utilisateur.Role.nom === "ADMIN") {
+      const boutique = await Boutique.findOne({
+        where: { utilisateurId: utilisateur.id },
+      });
+      if (boutique) {
+        const vendeurs = await Utilisateur.findAll({
+          where: { boutiqueId: boutique.id },
+          attributes: ["id"],
         });
-        res.status(200).json(payements);
-    } catch (error) {
-        console.error('Erreur lors de la récupération des paiements :', error);
-        res.status(500).json({ message: 'Erreur interne du serveur.' });
+        const vendeursIds = vendeurs.map((v) => v.id);
+        whereClause.utilisateurId = [utilisateur.id, ...vendeursIds];
+      } else {
+        whereClause.utilisateurId = utilisateur.id;
+      }
+    } else {
+      whereClause.utilisateurId = utilisateur.id;
     }
+
+    const payements = await PayementCredit.findAll({
+      where: whereClause,
+      include: [
+        { model: Utilisateur, attributes: ["id", "nom", "email"] },
+        {
+          model: Credit,
+          attributes: [
+            "id",
+            "reference",
+            "montant",
+            "montantPaye",
+            "montantRestant",
+          ],
+        },
+      ],
+      order: [["id", "DESC"]],
+    });
+
+    res.status(200).json(payements);
+  } catch (error) {
+    console.error("Erreur lors de la récupération des paiements :", error);
+    res.status(500).json({ message: "Erreur interne du serveur." });
+  }
 };
 
-// Consulter un paiement par id
+/**
+ * 🔎 Consulter un paiement (accès restreint)
+ */
 const consulterPayementCredit = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const payement = await PayementCredit.findByPk(id, {
-            include: [
-                { model: Utilisateur, attributes: ['id', 'nom', 'email'] },
-                { model: Credit, attributes: ['id', 'nom', 'montant', 'montantPaye', 'montantRestant'] }
-            ]
-        });
+  const utilisateur = await getUserFromToken(req, res);
+  if (!utilisateur) return;
 
-        if (!payement) return res.status(404).json({ message: 'Paiement non trouvé.' });
+  try {
+    const { id } = req.params;
+    const payement = await PayementCredit.findByPk(id, {
+      include: [{ model: Utilisateur, include: [Role] }, { model: Credit }],
+    });
 
-        res.status(200).json(payement);
-    } catch (error) {
-        console.error('Erreur lors de la consultation du paiement :', error);
-        res.status(500).json({ message: 'Erreur interne du serveur.' });
+    if (!payement)
+      return res.status(404).json({ message: "Paiement non trouvé." });
+
+    // Contrôle d’accès
+    if (
+      utilisateur.Role.nom === "VENDEUR" &&
+      payement.utilisateurId !== utilisateur.id
+    )
+      return res.status(403).json({ message: "Accès refusé." });
+
+    if (utilisateur.Role.nom === "ADMIN") {
+      const boutique = await Boutique.findOne({
+        where: { utilisateurId: utilisateur.id },
+      });
+      const vendeurAutorisé = payement.Utilisateur?.boutiqueId === boutique?.id;
+      if (!vendeurAutorisé && payement.utilisateurId !== utilisateur.id)
+        return res
+          .status(403)
+          .json({ message: "Paiement hors de votre boutique." });
     }
+
+    res.status(200).json(payement);
+  } catch (error) {
+    console.error("Erreur lors de la consultation du paiement :", error);
+    res.status(500).json({ message: "Erreur interne du serveur." });
+  }
 };
 
-// Modifier un paiement
+/**
+ * ✏️ Modifier un paiement
+ */
 const modifierPayementCredit = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const { montant } = req.body;
+  const utilisateur = await getUserFromToken(req, res);
+  if (!utilisateur) return;
 
-        const payement = await PayementCredit.findByPk(id);
-        if (!payement) return res.status(404).json({ message: 'Paiement non trouvé.' });
+  try {
+    const { id } = req.params;
+    const { montant } = req.body;
 
-        const credit = await Credit.findByPk(payement.creditId);
-        if (!credit) return res.status(404).json({ message: 'Crédit associé non trouvé.' });
+    const payement = await PayementCredit.findByPk(id, {
+      include: [{ model: Utilisateur, include: [Role] }],
+    });
+    if (!payement)
+      return res.status(404).json({ message: "Paiement non trouvé." });
 
-        // Mettre à jour le crédit avant le paiement
-        credit.montantPaye = credit.montantPaye - payement.montant + montant;
-        credit.montantRestant = credit.montant - credit.montantPaye;
-        await credit.save();
+    // Vérification des permissions
+    if (
+      utilisateur.Role.nom === "VENDEUR" &&
+      payement.utilisateurId !== utilisateur.id
+    )
+      return res.status(403).json({ message: "Accès refusé." });
 
-        // Mettre à jour le paiement
-        payement.montant = montant;
-        await payement.save();
-
-        res.status(200).json({ message: 'Paiement mis à jour avec succès.', payement });
-    } catch (error) {
-        console.error('Erreur lors de la mise à jour du paiement :', error);
-        res.status(500).json({ message: 'Erreur interne du serveur.' });
+    if (utilisateur.Role.nom === "ADMIN") {
+      const boutique = await Boutique.findOne({
+        where: { utilisateurId: utilisateur.id },
+      });
+      const vendeurAutorisé = payement.Utilisateur?.boutiqueId === boutique?.id;
+      if (!vendeurAutorisé && payement.utilisateurId !== utilisateur.id)
+        return res
+          .status(403)
+          .json({ message: "Paiement hors de votre boutique." });
     }
+
+    const credit = await Credit.findByPk(payement.creditId);
+    if (!credit)
+      return res.status(404).json({ message: "Crédit associé non trouvé." });
+
+    // Mise à jour du crédit avant modif
+    credit.montantPaye = credit.montantPaye - payement.montant + montant;
+    credit.montantRestant = credit.montant - credit.montantPaye;
+    credit.status = credit.montantRestant === 0 ? "PAYEE" : "EN COURS";
+
+    payement.montant = montant;
+    await credit.save();
+    await payement.save();
+
+    res
+      .status(200)
+      .json({ message: "Paiement mis à jour avec succès.", payement });
+  } catch (error) {
+    console.error("Erreur lors de la mise à jour du paiement :", error);
+    res.status(500).json({ message: "Erreur interne du serveur." });
+  }
 };
 
-// Supprimer un paiement
+/**
+ * ❌ Supprimer un paiement (restreint)
+ */
 const supprimerPayementCredit = async (req, res) => {
-    try {
-        const { id } = req.params;
-        const payement = await PayementCredit.findByPk(id);
-        if (!payement) return res.status(404).json({ message: 'Paiement non trouvé.' });
+  const utilisateur = await getUserFromToken(req, res);
+  if (!utilisateur) return;
 
-        const credit = await Credit.findByPk(payement.creditId);
-        if (credit) {
-            // Mettre à jour le crédit avant suppression
-            credit.montantPaye -= payement.montant;
-            credit.montantRestant = credit.montant - credit.montantPaye;
-            await credit.save();
-        }
+  try {
+    const { id } = req.params;
+    const payement = await PayementCredit.findByPk(id, {
+      include: [{ model: Utilisateur, include: [Role] }],
+    });
+    if (!payement)
+      return res.status(404).json({ message: "Paiement non trouvé." });
 
-        await payement.destroy();
-        res.status(200).json({ message: 'Paiement supprimé avec succès.' });
-    } catch (error) {
-        console.error('Erreur lors de la suppression du paiement :', error);
-        res.status(500).json({ message: 'Erreur interne du serveur.' });
+    if (
+      utilisateur.Role.nom === "VENDEUR" &&
+      payement.utilisateurId !== utilisateur.id
+    )
+      return res.status(403).json({ message: "Suppression non autorisée." });
+
+    if (utilisateur.Role.nom === "ADMIN") {
+      const boutique = await Boutique.findOne({
+        where: { utilisateurId: utilisateur.id },
+      });
+      const vendeurAutorisé = payement.Utilisateur?.boutiqueId === boutique?.id;
+      if (!vendeurAutorisé && payement.utilisateurId !== utilisateur.id)
+        return res
+          .status(403)
+          .json({ message: "Paiement hors de votre boutique." });
     }
+
+    const credit = await Credit.findByPk(payement.creditId);
+    if (credit) {
+      credit.montantPaye -= payement.montant;
+      credit.montantRestant = credit.montant - credit.montantPaye;
+      credit.status = "EN COURS";
+      await credit.save();
+    }
+
+    await payement.destroy();
+    res.status(200).json({ message: "Paiement supprimé avec succès." });
+  } catch (error) {
+    console.error("Erreur lors de la suppression du paiement :", error);
+    res.status(500).json({ message: "Erreur interne du serveur." });
+  }
 };
 
 module.exports = {
-    ajouterPayementCredit,
-    recupererPayementsCredit,
-    consulterPayementCredit,
-    modifierPayementCredit,
-    supprimerPayementCredit
+  ajouterPayementCredit,
+  recupererPayementsCredit,
+  consulterPayementCredit,
+  modifierPayementCredit,
+  supprimerPayementCredit,
 };

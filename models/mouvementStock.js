@@ -3,6 +3,7 @@ const sequelize = require('./sequelize');
 const Produit = require('./produit');
 const TypeMvt = require('./typeMvt');
 const Utilisateur = require('./utilisateur');
+const Boutique = require('./boutique');
 
 
 const MouvementStock = sequelize.define('MouvementStock', {
@@ -34,9 +35,21 @@ const MouvementStock = sequelize.define('MouvementStock', {
   typeMvtId: {
     type: DataTypes.INTEGER,
     allowNull: false,
-  }
-});
+  },
+  boutiqueId: {
+  type: DataTypes.INTEGER,
+  allowNull: false,
+},
+status: {
+    type: DataTypes.ENUM("VALIDER", "ANNULER"),
+    allowNull: false,
+    defaultValue: "VALIDER",
+  },
 
+})
+
+
+MouvementStock.belongsTo(Boutique, { foreignKey: 'boutiqueId' });
 MouvementStock.belongsTo(Utilisateur, { foreignKey: 'utilisateurId' });
 MouvementStock.belongsTo(Produit, { foreignKey: 'produitId' });
 MouvementStock.belongsTo(TypeMvt, { foreignKey: 'typeMvtId' });

@@ -42,7 +42,12 @@ const Produit = sequelize.define('Produit', {
   stock_minimum: {
     type: DataTypes.INTEGER,
     defaultValue: 0,
-  }
+  },
+  status: {
+    type: DataTypes.ENUM("VALIDER", "ANNULER"),
+    allowNull: false,
+    defaultValue: "VALIDER",
+  },
 });
 
 Produit.belongsTo(Utilisateur, { foreignKey: 'utilisateurId' });

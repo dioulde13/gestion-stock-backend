@@ -1,9 +1,9 @@
 const { DataTypes } = require("sequelize");
 const sequelize = require("./sequelize");
-const Utilisateur = require('./utilisateur');
-const Client = require('./client');
+const Utilisateur = require("./utilisateur");
+const Client = require("./client");
 
-const Vente = sequelize.define('Vente', {
+const Vente = sequelize.define("Vente", {
   id: {
     type: DataTypes.INTEGER,
     autoIncrement: true,
@@ -30,10 +30,15 @@ const Vente = sequelize.define('Vente', {
     allowNull: false,
     defaultValue: "ACHAT",
   },
+  status: {
+    type: DataTypes.ENUM("VALIDER", "ANNULER"),
+    allowNull: false,
+    defaultValue: "VALIDER",
+  },
 });
 
 // Relations
-Vente.belongsTo(Utilisateur, { foreignKey: 'utilisateurId' });
-Vente.belongsTo(Client, { foreignKey: 'clientId', allowNull: true }); // relation optionnelle
+Vente.belongsTo(Utilisateur, { foreignKey: "utilisateurId" });
+Vente.belongsTo(Client, { foreignKey: "clientId", allowNull: true }); // relation optionnelle
 
 module.exports = Vente;

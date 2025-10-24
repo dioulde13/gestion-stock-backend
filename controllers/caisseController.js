@@ -3,7 +3,6 @@ const Caisse = require('../models/caisse');
 const Utilisateur = require('../models/utilisateur');
 const Role = require('../models/role');
 const jwt = require('jsonwebtoken');
-// const { getCaisseByUser } = require("../utils/caisseUtils");
 
 // Récupérer les caisses selon le rôle
 const getCaisseParRole = async (req, res) => {

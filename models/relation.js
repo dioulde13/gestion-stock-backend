@@ -19,6 +19,22 @@ const NotificationUser = require('./notificationUser');
 const Notification = require('./notification');
 const Boutique = require('./boutique');
 
+Depense.belongsTo(Boutique, { foreignKey: 'boutiqueId' });
+Boutique.hasMany(Depense, { foreignKey: 'boutiqueId' });
+
+PayementCredit.belongsTo(Boutique, { foreignKey: 'boutiqueId' });
+Boutique.hasMany(PayementCredit, { foreignKey: 'boutiqueId' });
+
+Credit.belongsTo(Boutique, { foreignKey: 'boutiqueId' });
+Boutique.hasMany(Credit, { foreignKey: 'boutiqueId' });
+
+Client.belongsTo(Boutique, { foreignKey: 'boutiqueId' });
+Boutique.hasMany(Client, { foreignKey: 'boutiqueId' });
+
+MouvementStock.belongsTo(Boutique, { foreignKey: 'boutiqueId' });
+Boutique.hasMany(MouvementStock, { foreignKey: 'boutiqueId' });
+
+
 Client.belongsTo(Boutique, { foreignKey: 'boutiqueId' });
 Boutique.hasMany(Client, { foreignKey: 'boutiqueId' });
 

@@ -2,6 +2,7 @@ const { DataTypes } = require('sequelize');
 const sequelize = require('./sequelize');
 const Utilisateur = require('./utilisateur');
 const Client = require('./client');
+const Boutique = require('./boutique'); // 🔥 à importer
 
 const Credit = sequelize.define('Credit', {
     id: {
@@ -45,7 +46,7 @@ const Credit = sequelize.define('Credit', {
         defaultValue: 0
     },
     type: {
-        type: DataTypes.ENUM("SORTIE", "ENTRE", "ANNULEE"),
+        type: DataTypes.ENUM("SORTIE", "ENTRE"),
         allowNull: false,
         defaultValue: "SORTIE",
     },
@@ -55,11 +56,23 @@ const Credit = sequelize.define('Credit', {
         defaultValue: "ESPECE",
     },
     status: {
-        type: DataTypes.ENUM("NON PAYER", "PAYER", "EN COURS"),
+        type: DataTypes.ENUM("NON PAYER", "PAYER", "EN COURS", "ANNULEE"),
         allowNull: false,
         defaultValue: "NON PAYER",
-    }
+    },
+     boutiqueId: {
+    type: DataTypes.INTEGER,
+    allowNull: false,
+    references: {
+      model: Boutique,
+      key: 'id',
+    },
+    onDelete: 'CASCADE',
+    onUpdate: 'CASCADE',
+  },
 });
+
+Credit.belongsTo(Boutique, { foreignKey: 'boutiqueId' });
 
 Credit.belongsTo(Utilisateur, { foreignKey: 'utilisateurId' });
 Credit.belongsTo(Client, { foreignKey: 'clientId' });
