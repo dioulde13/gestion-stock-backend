@@ -86,7 +86,6 @@ const sequelize = require("./models/sequelize");
 const cors = require("cors");
 require("dotenv").config();
 
-
 // Charger tes modèles
 require("./models/notification");
 require("./models/notificationUser");
@@ -193,8 +192,8 @@ io.on("connection", (socket) => {
   });
 });
 
-app.get('/',(req,res) => {
-res.send('Backend en ligne');
+app.get("/", (req, res) => {
+  res.send("Backend en ligne");
 });
 
 const PORT = process.env.PORT || 3000;
