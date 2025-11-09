@@ -15,7 +15,11 @@ const Vente = sequelize.define("Vente", {
   },
   clientId: {
     type: DataTypes.INTEGER,
-    allowNull: true, // le client n'est plus obligatoire
+    allowNull: true,
+  },
+  nomPersonneAnnuler: {
+    type: DataTypes.STRING,
+    allowNull: true,
   },
   date: {
     type: DataTypes.DATE,

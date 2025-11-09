@@ -13,6 +13,8 @@ router.get('/alert', produitController.produitsEnAlerteStock);
 // Modifier un produit
 router.put('/:id', produitController.modifierProduit);
 router.delete('/supprimer/:id', produitController.supprimerProduit);
+router.put('/annuler/:id', produitController.annulerProduit);
+
 
 // router.delete('/supprimer/:id', produitController.supprimerProduit);
 

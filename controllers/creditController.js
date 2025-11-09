@@ -33,9 +33,112 @@ const getUserFromToken = async (req, res) => {
   }
 };
 
-const ajouterCredit = async (req, res) => {
- 
+const annulerCredit = async (req, res) => {
+  try {
+    const utilisateur = await getUserFromToken(req, res);
+    if (!utilisateur) return;
 
+    const { id } = req.params;
+
+    await sequelize.transaction(async (t) => {
+      // 1️⃣ Récupération du crédit
+      const credit = await Credit.findByPk(id, {
+        include: [{ model: Client }],
+        transaction: t,
+      });
+
+      if (!credit) {
+        return res.status(404).json({ message: "Crédit non trouvé." });
+      }
+
+      if (credit.status === "ANNULER") {
+        return res.status(400).json({ message: "Ce crédit est déjà annulé." });
+      }
+
+      // 2️⃣ Récupération des caisses concernées
+      const caisseUtilisateur = await getCaisseByType(
+        "CAISSE",
+        utilisateur.id,
+        t
+      );
+      const caisseAdminBoutique = await getCaisseByType(
+        "CAISSE",
+        credit.boutiqueId
+          ? (
+              await Boutique.findByPk(credit.boutiqueId, { transaction: t })
+            ).utilisateurId
+          : null,
+        t
+      );
+
+      const caisseCreditEspeceUtilisateur = await getCaisseByType(
+        "CREDIT_ESPECE",
+        utilisateur.id,
+        t
+      );
+      const caisseCreditEspeceAdminBoutique = await getCaisseByType(
+        "CREDIT_ESPECE",
+        caisseAdminBoutique.utilisateurId,
+        t
+      );
+
+      const caisseCreditEspeceEntreUtilisateur = await getCaisseByType(
+        "CREDIT_ESPECE_ENTRE",
+        utilisateur.id,
+        t
+      );
+      const caisseCreditEspeceEntreAdminBoutique = await getCaisseByType(
+        "CREDIT_ESPECE_ENTRE",
+        caisseAdminBoutique.utilisateurId,
+        t
+      );
+
+      const montant = credit.montant;
+
+      // 3️⃣ Inversion des mouvements de caisse
+      if (credit.type === "SORTIE") {
+        caisseCreditEspeceAdminBoutique.solde_actuel -= montant;
+        caisseCreditEspeceUtilisateur.solde_actuel -= montant;
+        caisseUtilisateur.solde_actuel += montant;
+        caisseAdminBoutique.solde_actuel += montant;
+
+        await Promise.all([
+          caisseCreditEspeceAdminBoutique.save({ transaction: t }),
+          caisseCreditEspeceUtilisateur.save({ transaction: t }),
+          caisseUtilisateur.save({ transaction: t }),
+          caisseAdminBoutique.save({ transaction: t }),
+        ]);
+      } else if (credit.type === "ENTRE") {
+        caisseCreditEspeceEntreUtilisateur.solde_actuel -= montant;
+        caisseCreditEspeceEntreAdminBoutique.solde_actuel -= montant;
+        caisseUtilisateur.solde_actuel -= montant;
+        caisseAdminBoutique.solde_actuel -= montant;
+
+        await Promise.all([
+          caisseCreditEspeceEntreUtilisateur.save({ transaction: t }),
+          caisseCreditEspeceEntreAdminBoutique.save({ transaction: t }),
+          caisseUtilisateur.save({ transaction: t }),
+          caisseAdminBoutique.save({ transaction: t }),
+        ]);
+      }
+
+      // 4️⃣ Mise à jour du crédit
+      credit.status = "ANNULER";
+      await credit.save({ transaction: t });
+
+      // ✅ Émission socket pour mise à jour en temps réel
+      const io = req.app.get("io");
+      io.emit("caisseMisAJour");
+
+      res.status(200).json({ message: "Crédit annulé avec succès.", credit });
+    });
+  } catch (error) {
+    console.error("Erreur lors de l'annulation du crédit :", error);
+    res.status(500).json({ message: "Erreur interne du serveur." });
+  }
+};
+
+const ajouterCredit = async (req, res) => {
   const { clientId, montant, description, type, typeCredit } = req.body;
   if (!clientId || !montant || !type || !description)
     return res
@@ -44,12 +147,11 @@ const ajouterCredit = async (req, res) => {
 
   try {
     await sequelize.transaction(async (t) => {
-
       const client = await Client.findByPk(clientId, { transaction: t });
       if (!client)
         return res.status(404).json({ message: "Client non trouvé." });
-       const utilisateur = await getUserFromToken(req, res);
-  if (!utilisateur) return;
+      const utilisateur = await getUserFromToken(req, res);
+      if (!utilisateur) return;
 
       // 1️⃣ Caisse de l'utilisateur
       const caisseUtilisateur = await getCaisseByType(
@@ -139,7 +241,7 @@ const ajouterCredit = async (req, res) => {
           clientId,
           reference,
           type,
-          status:"VALIDER",
+          status: "NON PAYER",
           typeCredit: typeCredit || "ESPECE",
           description,
           montant,
@@ -192,7 +294,6 @@ const ajouterCredit = async (req, res) => {
   }
 };
 
-
 /**
  * 🔍 Récupérer les crédits selon le rôle
  */
@@ -229,7 +330,7 @@ const recupererCredits = async (req, res) => {
       where: whereClause,
       include: [
         { model: Utilisateur, attributes: ["id", "nom", "email"] },
-        { model: Client, attributes: ["id", "nom"] },
+        { model: Client, attributes: ["id", "nom", "telephone"] },
       ],
       order: [["createdAt", "DESC"]],
     });
@@ -303,29 +404,55 @@ const modifierCredit = async (req, res) => {
         return res.status(404).json({ message: "Client non trouvé." });
 
       // 1️⃣ Caisse de l'utilisateur
-      const caisseUtilisateur = await getCaisseByType("CAISSE", utilisateur.id, t);
+      const caisseUtilisateur = await getCaisseByType(
+        "CAISSE",
+        utilisateur.id,
+        t
+      );
       if (!caisseUtilisateur)
         throw new Error("Caisse non trouvée pour cet utilisateur.");
 
       // 2️⃣ Caisse de la boutique (admin principal)
       let caisseAdminBoutique = null;
-      const boutique = await Boutique.findByPk(utilisateur.boutiqueId, { transaction: t });
+      const boutique = await Boutique.findByPk(utilisateur.boutiqueId, {
+        transaction: t,
+      });
       if (boutique && boutique.utilisateurId) {
-        caisseAdminBoutique = await getCaisseByType("CAISSE", boutique.utilisateurId, t);
+        caisseAdminBoutique = await getCaisseByType(
+          "CAISSE",
+          boutique.utilisateurId,
+          t
+        );
       }
 
       // Caisse CREDIT_ESPECE
-      const caisseCreditEspeceUtilisateur = await getCaisseByType("CREDIT_ESPECE", utilisateur.id, t);
+      const caisseCreditEspeceUtilisateur = await getCaisseByType(
+        "CREDIT_ESPECE",
+        utilisateur.id,
+        t
+      );
       let caisseCreditEspeceAdminBoutique = null;
       if (boutique && boutique.utilisateurId) {
-        caisseCreditEspeceAdminBoutique = await getCaisseByType("CREDIT_ESPECE", boutique.utilisateurId, t);
+        caisseCreditEspeceAdminBoutique = await getCaisseByType(
+          "CREDIT_ESPECE",
+          boutique.utilisateurId,
+          t
+        );
       }
 
       // Caisse CREDIT_ESPECE_ENTRE
-      const caisseCreditEspeceEntreUtilisateur = await getCaisseByType("CREDIT_ESPECE_ENTRE", utilisateur.id, t);
+      const caisseCreditEspeceEntreUtilisateur = await getCaisseByType(
+        "CREDIT_ESPECE_ENTRE",
+        utilisateur.id,
+        t
+      );
       let caisseCreditEspeceEntreAdminBoutique = null;
       if (boutique && boutique.utilisateurId) {
-        caisseCreditEspeceEntreAdminBoutique = await getCaisseByType("CREDIT_ESPECE_ENTRE", boutique.utilisateurId, t);
+        caisseCreditEspeceEntreAdminBoutique = await getCaisseByType(
+          "CREDIT_ESPECE_ENTRE",
+          boutique.utilisateurId,
+          t
+        );
       }
 
       // ⚠️ Revenir sur les montants précédemment appliqués
@@ -440,8 +567,6 @@ const modifierCredit = async (req, res) => {
   }
 };
 
-
-
 /**
  * ❌ Supprimer un crédit (avec restrictions)
  */
@@ -467,35 +592,63 @@ const supprimerCredit = async (req, res) => {
     const type = credit.type; // ✅ récupération du type du crédit
 
     // 1️⃣ Caisse de l'utilisateur
-    const caisseUtilisateur = await getCaisseByType("CAISSE", utilisateur.id, t);
+    const caisseUtilisateur = await getCaisseByType(
+      "CAISSE",
+      utilisateur.id,
+      t
+    );
     if (!caisseUtilisateur)
       throw new Error("Caisse non trouvée pour cet utilisateur.");
 
     // 2️⃣ Caisse de la boutique (admin principal)
-    const boutique = await Boutique.findByPk(utilisateur.boutiqueId, { transaction: t });
+    const boutique = await Boutique.findByPk(utilisateur.boutiqueId, {
+      transaction: t,
+    });
     let caisseAdminBoutique = null;
     if (boutique?.utilisateurId) {
-      caisseAdminBoutique = await getCaisseByType("CAISSE", boutique.utilisateurId, t);
+      caisseAdminBoutique = await getCaisseByType(
+        "CAISSE",
+        boutique.utilisateurId,
+        t
+      );
     }
 
     // 3️⃣ Caisses CREDIT_ESPECE
-    const caisseCreditEspeceUtilisateur = await getCaisseByType("CREDIT_ESPECE", utilisateur.id, t);
+    const caisseCreditEspeceUtilisateur = await getCaisseByType(
+      "CREDIT_ESPECE",
+      utilisateur.id,
+      t
+    );
     if (!caisseCreditEspeceUtilisateur)
       throw new Error("Caisse credit espece non trouvée pour cet utilisateur.");
 
     let caisseCreditEspeceAdminBoutique = null;
     if (boutique?.utilisateurId) {
-      caisseCreditEspeceAdminBoutique = await getCaisseByType("CREDIT_ESPECE", boutique.utilisateurId, t);
+      caisseCreditEspeceAdminBoutique = await getCaisseByType(
+        "CREDIT_ESPECE",
+        boutique.utilisateurId,
+        t
+      );
     }
 
     // 4️⃣ Caisses CREDIT_ESPECE_ENTRE
-    const caisseCreditEspeceEntreUtilisateur = await getCaisseByType("CREDIT_ESPECE_ENTRE", utilisateur.id, t);
+    const caisseCreditEspeceEntreUtilisateur = await getCaisseByType(
+      "CREDIT_ESPECE_ENTRE",
+      utilisateur.id,
+      t
+    );
     if (!caisseCreditEspeceEntreUtilisateur)
-      throw new Error("Caisse credit espece entre non trouvée pour cet utilisateur.");
+      throw new Error(
+        "Caisse credit espece entre non trouvée pour cet utilisateur."
+      );
 
     let caisseCreditEspeceEntreAdminBoutique = null;
     if (boutique?.utilisateurId) {
-      caisseCreditEspeceEntreAdminBoutique = await getCaisseByType("CREDIT_ESPECE_ENTRE", boutique.utilisateurId, t);
+      caisseCreditEspeceEntreAdminBoutique = await getCaisseByType(
+        "CREDIT_ESPECE_ENTRE",
+        boutique.utilisateurId,
+        t
+      );
     }
 
     // 💰 Mise à jour des caisses
@@ -543,11 +696,11 @@ const supprimerCredit = async (req, res) => {
   }
 };
 
-
 module.exports = {
   ajouterCredit,
   recupererCredits,
   consulterCredit,
   modifierCredit,
   supprimerCredit,
+  annulerCredit,
 };

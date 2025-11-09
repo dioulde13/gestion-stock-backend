@@ -10,6 +10,87 @@ const { Op } = require("sequelize");
 const bcrypt = require("bcrypt");
 const Boutique = require("../models/boutique");
 
+
+// ===============================
+// Modifier le mot de passe d’un utilisateur connecté
+// ===============================
+const changerMotDePasse = async (req, res) => {
+  try {
+    const { oldPassword, newPassword } = req.body;
+
+    // 🧩 Validation des champs
+    if (!oldPassword || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "L'ancien mot de passe et le nouveau mot de passe sont requis.",
+      });
+    }
+
+    // 🪪 Récupération du token JWT dans les en-têtes
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: "Token non fourni.",
+      });
+    }
+
+    // 🔍 Vérification du token JWT
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (err) {
+      return res.status(401).json({
+        success: false,
+        message: "Token invalide ou expiré.",
+      });
+    }
+
+    const userId = decoded.id;
+
+    // 🧑‍💻 Récupération de l’utilisateur dans la base de données
+    const utilisateur = await Utilisateur.findByPk(userId);
+    if (!utilisateur) {
+      return res.status(404).json({
+        success: false,
+        message: "Utilisateur non trouvé.",
+      });
+    }
+
+    // 🔐 Vérification de l'ancien mot de passe
+    const isOldPasswordValid = await bcrypt.compare(
+      oldPassword,
+      utilisateur.mot_de_passe
+    );
+    if (!isOldPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: "L'ancien mot de passe est incorrect.",
+      });
+    }
+
+    // 🧂 Hachage du nouveau mot de passe
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // 💾 Mise à jour du mot de passe
+    utilisateur.mot_de_passe = hashedPassword;
+    await utilisateur.save();
+
+    // ✅ Réponse
+    return res.status(200).json({
+      success: true,
+      message: "Mot de passe modifié avec succès.",
+    });
+  } catch (error) {
+    console.error("Erreur lors du changement de mot de passe :", error);
+    return res.status(500).json({
+      success: false,
+      message: "Erreur interne du serveur.",
+    });
+  }
+};
+
 // ===============================
 // Connexion Utilisateur
 // ===============================
@@ -45,6 +126,7 @@ const connexionUtilisateur = async (req, res) => {
         boutiqueId: utilisateur.boutiqueId,
       },
       process.env.JWT_SECRET,
+      // { expiresIn: '2m' }
       { expiresIn: "1h" }
     );
 
@@ -358,26 +440,65 @@ const recupererUtilisateurs = async (req, res) => {
 
 const modifierUtilisateur = async (req, res) => {
   try {
-    const { id } = req.params;
-    const { nom, email, mot_de_passe } = req.body;
-    const utilisateur = await Utilisateur.findByPk(id);
-    if (!utilisateur)
-      return res.status(404).json({ message: "Utilisateur non trouvé." });
+    // 🔹 Extraire le token JWT depuis l’en-tête Authorization
+    const token = req.headers.authorization?.split(" ")[1];
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: "Token non fourni.",
+      });
+    }
 
+    // 🔹 Vérifier et décoder le token
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (err) {
+      return res.status(401).json({
+        success: false,
+        message: "Token invalide ou expiré.",
+      });
+    }
+
+    const userId = decoded.id; // récupéré depuis le payload du token
+
+    // 🔹 Récupérer l’utilisateur connecté
+    const utilisateur = await Utilisateur.findByPk(userId);
+    if (!utilisateur) {
+      return res.status(404).json({
+        success: false,
+        message: "Utilisateur non trouvé.",
+      });
+    }
+
+    // 🔹 Récupérer les champs du body
+    const { nom, email} = req.body;
+
+    // Construire les données à mettre à jour
     const updateData = {
       nom: nom || utilisateur.nom,
       email: email || utilisateur.email,
     };
-    if (mot_de_passe)
-      updateData.mot_de_passe = await bcrypt.hash(mot_de_passe, 10);
 
+    // 🔹 Mettre à jour les informations
     await utilisateur.update(updateData);
-    res
-      .status(200)
-      .json({ message: "Utilisateur mis à jour avec succès.", utilisateur });
+
+    // ✅ Réponse
+    res.status(200).json({
+      success: true,
+      message: "Profil mis à jour avec succès.",
+      utilisateur: {
+        id: utilisateur.id,
+        nom: utilisateur.nom,
+        email: utilisateur.email,
+      },
+    });
   } catch (error) {
-    console.error("Erreur lors de la mise à jour de utilisateur :", error);
-    res.status(500).json({ message: "Erreur interne du serveur." });
+    console.error("Erreur lors de la mise à jour de l'utilisateur :", error);
+    res.status(500).json({
+      success: false,
+      message: "Erreur interne du serveur.",
+    });
   }
 };
 
@@ -520,4 +641,5 @@ module.exports = {
   modifierUtilisateur,
   connexionUtilisateur,
   supprimerUtilisateur,
+  changerMotDePasse
 };

@@ -7,5 +7,6 @@ router.get('/liste', creditController.recupererCredits);
 router.get('/consulter/:id', creditController.consulterCredit);
 router.put('/modifier/:id', creditController.modifierCredit);
 router.delete('/supprimer/:id', creditController.supprimerCredit);
+router.delete('/annuler/:id', creditController.annulerCredit);
 
 module.exports = router;

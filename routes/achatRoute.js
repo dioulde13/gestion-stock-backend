@@ -1,11 +1,11 @@
-const express = require('express');
+const express = require("express");
 const router = express.Router();
-const achatController = require('../controllers/achatController');
+const achatController = require("../controllers/achatController");
 
-
-router.post('/create', achatController.creerAchat);
-router.get('/liste', achatController. recupererAchats);
+router.post("/create", achatController.creerAchat);
+router.get("/liste", achatController.recupererAchats);
 // router.get('/consulter/:id', achatController.consulterAchat);
-router.delete('/supprimer/:id', achatController.supprimerAchat);
+router.delete("/supprimer/:id", achatController.supprimerAchat);
+router.put("/annuler/:id", achatController.annulerAchat);
 
 module.exports = router;

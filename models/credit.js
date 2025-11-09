@@ -18,6 +18,10 @@ const Credit = sequelize.define('Credit', {
         type: DataTypes.INTEGER,
         allowNull: false,
     },
+     nomPersonneAnnuler: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
      description: {
         type: DataTypes.STRING,
         allowNull: false,
@@ -56,7 +60,7 @@ const Credit = sequelize.define('Credit', {
         defaultValue: "ESPECE",
     },
     status: {
-        type: DataTypes.ENUM("NON PAYER", "PAYER", "EN COURS", "ANNULEE"),
+        type: DataTypes.ENUM("NON PAYER", "PAYER", "EN COURS", "ANNULER"),
         allowNull: false,
         defaultValue: "NON PAYER",
     },

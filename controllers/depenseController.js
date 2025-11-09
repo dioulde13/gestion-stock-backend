@@ -222,11 +222,23 @@ const supprimerDepense = async (req, res) => {
     if (!caisseUtilisateur)
       throw new Error("Caisse non trouvée pour cet utilisateur.");
 
+    if (caisseUtilisateur.solde_actuel < montant) {
+      return res
+        .status(400)
+        .json({ message: "Solde insuffisant pour effectuer cette depense." });
+    }
+
     // 2️⃣ Caisse de la boutique (admin principal)
     const boutique = await Boutique.findByPk(utilisateur.boutiqueId, { transaction: t });
     let caisseAdminBoutique = null;
     if (boutique?.utilisateurId) {
       caisseAdminBoutique = await getCaisseByType("CAISSE", boutique.utilisateurId, t);
+    }
+
+    if (caisseAdminBoutique.solde_actuel < montant) {
+      return res
+        .status(400)
+        .json({ message: "Solde insuffisant pour effectuer cette depense." });
     }
 
     // 💰 Remboursement de la dépense supprimée
@@ -256,6 +268,73 @@ const supprimerDepense = async (req, res) => {
   }
 };
 
+const annulerDepense = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const utilisateur = await getUserFromToken(req, res);
+    if (!utilisateur) return;
+
+    const { id } = req.params;
+
+    // 🔹 Récupération de la dépense avec son utilisateur et sa boutique
+    const depense = await Depense.findByPk(id, {
+      include: [{ model: Utilisateur, include: [Role] }, Boutique],
+      transaction: t,
+    });
+
+    if (!depense) {
+      await t.rollback();
+      return res.status(404).json({ message: "Dépense non trouvée." });
+    }
+
+    if (depense.status === "ANNULER") {
+      await t.rollback();
+      return res.status(400).json({ message: "Cette dépense est déjà annulée." });
+    }
+
+    const montant = depense.montant;
+
+    // 1️⃣ Caisse de l'utilisateur
+    const caisseUtilisateur = await getCaisseByType("CAISSE", utilisateur.id, t);
+    if (!caisseUtilisateur)
+      throw new Error("Caisse non trouvée pour cet utilisateur.");
+
+    // 2️⃣ Caisse de la boutique (admin principal)
+    const boutique = await Boutique.findByPk(utilisateur.boutiqueId, { transaction: t });
+    let caisseAdminBoutique = null;
+    if (boutique?.utilisateurId) {
+      caisseAdminBoutique = await getCaisseByType("CAISSE", boutique.utilisateurId, t);
+    }
+
+    // 💰 Remboursement de la dépense annulée
+    caisseUtilisateur.solde_actuel += montant;
+    await caisseUtilisateur.save({ transaction: t });
+
+    if (caisseAdminBoutique) {
+      caisseAdminBoutique.solde_actuel += montant;
+      await caisseAdminBoutique.save({ transaction: t });
+    }
+
+    // 🟡 Mise à jour du status à "ANNULER"
+    depense.status = "ANNULER";
+    await depense.save({ transaction: t });
+
+    // ✅ Commit de la transaction
+    await t.commit();
+
+    // ✅ Émission socket pour mise à jour en temps réel
+    const io = req.app.get("io");
+    io.emit("caisseMisAJour");
+
+    res.status(200).json({ message: "Dépense annulée avec succès." });
+  } catch (error) {
+    await t.rollback();
+    console.error("Erreur lors de l'annulation de la dépense :", error);
+    res.status(500).json({ message: "Erreur interne du serveur." });
+  }
+};
+
+
 
 module.exports = {
   ajouterDepense,
@@ -263,4 +342,5 @@ module.exports = {
   consulterDepense,
   modifierDepense,
   supprimerDepense,
+  annulerDepense
 };

@@ -8,7 +8,7 @@ const Utilisateur = sequelize.define('Utilisateur', {
   mot_de_passe: { type: DataTypes.STRING },
   roleId: { type: DataTypes.INTEGER, allowNull: false },
   boutiqueId: { type: DataTypes.INTEGER, allowNull: true }, // vendeur lié à une seule boutique
-  otp: { type: DataTypes.INTEGER }
+  otp: { type: DataTypes.INTEGER },
 });
 
 module.exports = Utilisateur;

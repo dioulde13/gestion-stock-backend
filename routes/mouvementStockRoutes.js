@@ -8,5 +8,6 @@ router.get('/consulter/:id', mouvementStockController.consulterMouvementStock);
 router.delete('/supprimer/:id', mouvementStockController.supprimerMouvementStock); // ✅ corriger ici aussi !
 // router.get('/mouvementStock/:produitId', mouvementStockController.afficherHistoriqueMouvementsProduit);
 router.put('/modifier/:id', mouvementStockController.modifierMouvementStock);
+router.put('/annuler/:id', mouvementStockController.annulerMouvementStock);
 
 module.exports = router;
