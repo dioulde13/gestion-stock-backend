@@ -1,6 +1,3 @@
-
-
-
 // // Configuration Sequelize
 // const sequelize = new Sequelize(
 //   dbConfig.database,
@@ -23,7 +20,6 @@
 //     },
 //   }
 // );
-
 
 // const { Sequelize } = require("sequelize");
 // const dbConfig = require("../config/dbConfig");
@@ -50,12 +46,38 @@
 
 // module.exports = sequelize;
 
+// const { Sequelize } = require("sequelize");
+// const dbConfig = require("../config/dbConfig");
 
+// // Configuration Sequelize
+// const sequelize = new Sequelize(
+//   dbConfig.database,
+//   dbConfig.user,
+//   dbConfig.password,
+//   {
+//     host: dbConfig.host,
+//     dialect: "mysql",
+//     port: dbConfig.port,
+//     logging: false,
+//     dialectOptions: {
+//       multipleStatements: true, // Permet d'exécuter plusieurs requêtes en une seule
+//       connectTimeout: 60000, // Augmente le timeout de connexion
+//     },
+//     pool: {
+//       max: 10, // Nombre max de connexions simultanées
+//       min: 0,
+//       acquire: 30000, // Timeout avant l'échec d'une connexion
+//       idle: 10000, // Temps avant de fermer une connexion inactive
+//     },
+//   }
+// );
+
+// module.exports = sequelize;
 
 const { Sequelize } = require("sequelize");
 const dbConfig = require("../config/dbConfig");
 
-// Configuration Sequelize
+// Création de l'instance Sequelize
 const sequelize = new Sequelize(
   dbConfig.database,
   dbConfig.user,
@@ -66,16 +88,28 @@ const sequelize = new Sequelize(
     port: dbConfig.port,
     logging: false,
     dialectOptions: {
-      multipleStatements: true, // Permet d'exécuter plusieurs requêtes en une seule
-      connectTimeout: 60000, // Augmente le timeout de connexion
+      multipleStatements: true, // Permet plusieurs requêtes en une seule
+      connectTimeout: 60000, // Timeout plus long
     },
     pool: {
-      max: 10, // Nombre max de connexions simultanées
+      max: 10, // max connexions simultanées
       min: 0,
-      acquire: 30000, // Timeout avant l'échec d'une connexion
-      idle: 10000, // Temps avant de fermer une connexion inactive
+      acquire: 30000, // temps avant échec connexion
+      idle: 10000, // fermeture connexion inactive
     },
   }
 );
+
+// Test de connexion
+async function testConnection() {
+  try {
+    await sequelize.authenticate();
+    console.log("✅ Connexion à la base MySQL réussie !");
+  } catch (error) {
+    console.error("❌ Impossible de se connecter à MySQL :", error);
+  }
+}
+
+testConnection();
 
 module.exports = sequelize;
