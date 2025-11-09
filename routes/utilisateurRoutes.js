@@ -5,7 +5,8 @@ const utilisateurController = require('../controllers/utilisateurController');
 // --- UTILISATEUR ---
 router.post('/create', utilisateurController.creerVendeur);
 router.get('/liste', utilisateurController.recupererUtilisateurs);
-router.put('/:id', utilisateurController.modifierUtilisateur);
+router.put('/modifier', utilisateurController.modifierUtilisateur);
+router.put('/updatePassword', utilisateurController.changerMotDePasse);
 router.post('/login', utilisateurController.connexionUtilisateur);
 router.delete('/supprimer/:id', utilisateurController.supprimerUtilisateur);
 router.post('/generate/otp', utilisateurController.otpGenererController);

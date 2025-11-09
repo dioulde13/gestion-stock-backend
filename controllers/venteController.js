@@ -182,6 +182,233 @@ const Role = require("../models/role");
 const { getCaisseByType } = require("../utils/caisseUtils");
 const Boutique = require("../models/boutique");
 
+const annulerVente = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { id } = req.params;
+
+    const authHeader = req.headers["authorization"];
+    if (!authHeader) {
+      return res.status(403).json({
+        success: false,
+        message: "Accès refusé. Aucun token trouvé.",
+      });
+    }
+
+    const token = authHeader.split(" ")[1];
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    const utilisateur = await Utilisateur.findByPk(decoded.id, {
+      transaction: t,
+    });
+    if (!utilisateur) throw new Error("Utilisateur non trouvé.");
+
+    const vente = await Vente.findByPk(id, {
+      include: [{ model: LigneVente }, { model: Client }],
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+
+    if (!vente) throw new Error("Vente non trouvée.");
+    if (vente.status === "ANNULER")
+      throw new Error("Cette vente est déjà annulée.");
+
+    const { type, total, clientId } = vente;
+
+    let totalAchat = 0;
+    let benefice = 0;
+
+    for (const ligne of vente.LigneVentes) {
+      const produit = await Produit.findByPk(ligne.produitId, {
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+
+      if (produit) {
+        produit.stock_actuel += ligne.quantite;
+        await produit.save({ transaction: t });
+        totalAchat += ligne.quantite * ligne.prix_achat;
+      }
+
+      benefice += (ligne.prix_vente - ligne.prix_achat) * ligne.quantite;
+    }
+
+    const boutique = await Boutique.findByPk(utilisateur.boutiqueId, {
+      transaction: t,
+    });
+
+    if (boutique) {
+      const vendeursBoutique = await Utilisateur.findAll({
+        where: { boutiqueId: boutique.id },
+        transaction: t,
+      });
+
+      for (const vendeur of vendeursBoutique) {
+        const caisseVSP = await getCaisseByType(
+          "VALEUR_STOCK_PUR",
+          vendeur.id,
+          t
+        );
+        if (caisseVSP) {
+          caisseVSP.solde_actuel += totalAchat;
+          await caisseVSP.save({ transaction: t });
+        }
+      }
+
+      if (boutique.utilisateurId) {
+        const adminBoutique = await Utilisateur.findByPk(
+          boutique.utilisateurId,
+          {
+            transaction: t,
+          }
+        );
+        if (adminBoutique) {
+          const caisseAdminVSP = await getCaisseByType(
+            "VALEUR_STOCK_PUR",
+            adminBoutique.id,
+            t
+          );
+          const caisseAdminPrincipal = await getCaisseByType(
+            "CAISSE",
+            adminBoutique.id,
+            t
+          );
+          if (type === "ACHAT") {
+            if (!caisseAdminPrincipal || !caisseAdminVSP) {
+              await t.rollback();
+              return res.status(400).json({
+                success: false,
+                message: "Caisse admin ou valeur stock pur introuvable.",
+              });
+            }
+
+            if (caisseAdminVSP.solde_actuel < total) {
+              await t.rollback();
+              return res.status(400).json({
+                success: false,
+                message:
+                  "Solde insuffisant dans la caisse admin pour annuler cette vente.",
+              });
+            }
+            if (caisseAdminVSP && caisseAdminPrincipal) {
+              caisseAdminVSP.solde_actuel += totalAchat;
+              caisseAdminPrincipal.solde_actuel -= total;
+              await caisseAdminVSP.save({ transaction: t });
+              await caisseAdminPrincipal.save({ transaction: t });
+            }
+          } else if (type === "CREDIT") {
+            const CreditVenteAdminVSP = await getCaisseByType(
+              "CREDIT_VENTE",
+              adminBoutique.id,
+              t
+            );
+            if (caisseAdminVSP && CreditVenteAdminVSP) {
+              caisseAdminVSP.solde_actuel += totalAchat;
+              CreditVenteAdminVSP.solde_actuel -= total;
+              await caisseAdminVSP.save({ transaction: t });
+              await CreditVenteAdminVSP.save({ transaction: t });
+            }
+          }
+        }
+      }
+    }
+
+    if (type === "ACHAT") {
+      const caissePrincipale = await getCaisseByType(
+        "PRINCIPALE",
+        utilisateur.id,
+        t
+      );
+
+      const caisseSolde = await getCaisseByType("CAISSE", utilisateur.id, t);
+
+      // Vérifier l'existence
+      if (!caisseSolde) {
+        await t.rollback();
+        return res.status(400).json({
+          success: false,
+          message: "Caisse principale ou caisse utilisateur introuvable.",
+        });
+      }
+
+      // Vérifier le solde suffisant
+      if (caisseSolde.solde_actuel < total) {
+        await t.rollback();
+        return res.status(400).json({
+          success: false,
+          message: "Solde insuffisant dans la caisse pour annuler la vente.",
+        });
+      }
+
+      caissePrincipale.solde_actuel -= total;
+      await caissePrincipale.save({ transaction: t });
+
+      caisseSolde.solde_actuel -= total;
+      await caisseSolde.save({ transaction: t });
+
+      const beneficeRealiser = await getCaisseByType(
+        "BENEFICE",
+        utilisateur.id,
+        t
+      );
+      beneficeRealiser.solde_actuel -= benefice;
+      await beneficeRealiser.save({ transaction: t });
+    } else if (type === "CREDIT") {
+      const caisseCredit = await getCaisseByType(
+        "CREDIT_VENTE",
+        utilisateur.id,
+        t
+      );
+      caisseCredit.solde_actuel -= total;
+      await caisseCredit.save({ transaction: t });
+
+      const beneficeRealiserCredit = await getCaisseByType(
+        "BENEFICE_CREDIT",
+        utilisateur.id,
+        t
+      );
+      beneficeRealiserCredit.solde_actuel -= benefice;
+      await beneficeRealiserCredit.save({ transaction: t });
+
+      const credit = await Credit.findOne({
+        where: {
+          clientId,
+          typeCredit: "VENTE",
+          montant: total,
+          status: "VALIDER",
+        },
+        transaction: t,
+      });
+      if (credit) {
+        credit.status = "ANNULER";
+        await credit.save({ transaction: t });
+      }
+    }
+
+    vente.nomPersonneAnnuler = `${utilisateur.nom ?? ""}`.trim();
+    vente.status = "ANNULER";
+
+    await vente.save({ transaction: t });
+
+    await t.commit();
+
+    const io = req.app.get("io");
+    io.emit("caisseMisAJour");
+
+    return res.status(200).json({
+      success: true,
+      message: "Vente annulée et effets restaurés avec succès.",
+    });
+  } catch (error) {
+    if (!t.finished) await t.rollback();
+    console.error("Erreur lors de l'annulation de la vente :", error);
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Erreur interne du serveur.",
+    });
+  }
+};
+
 const creerVente = async (req, res) => {
   const t = await sequelize.transaction();
   try {
@@ -285,7 +512,7 @@ const creerVente = async (req, res) => {
         clientId: clientAssocie ? clientAssocie.id : null,
         total: totalVente,
         type,
-        status:"VALIDER",
+        status: "VALIDER",
       },
       { transaction: t }
     );
@@ -443,7 +670,6 @@ const creerVente = async (req, res) => {
 
               await caisseAdminVSP.save({ transaction: t });
               await CreditVenteAdminVSP.save({ transaction: t });
-
             }
           }
         }
@@ -512,6 +738,7 @@ const creerVente = async (req, res) => {
           beneficeCredit: benefice,
           type: "SORTIE",
           typeCredit: "VENTE",
+          status: "VALIDER",
           boutiqueId: utilisateur.boutiqueId,
         },
         { transaction: t }
@@ -756,4 +983,5 @@ module.exports = {
   consulterVente,
   supprimerVente,
   produitsPlusVendus,
+  annulerVente,
 };

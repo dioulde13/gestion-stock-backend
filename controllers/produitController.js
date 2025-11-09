@@ -66,6 +66,7 @@ const ajouterProduit = async (req, res) => {
           stock_minimum,
           categorieId,
           boutiqueId,
+          status:"VALIDER",
           utilisateurId: admin.id,
         },
         { transaction: t }
@@ -403,182 +404,100 @@ const modifierProduit = async (req, res) => {
   }
 };
 
+const annulerProduit = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { utilisateurId, boutiqueId } = req.body;
 
-// ✅ Supprimer un produit (uniquement par admin)
-// const supprimerProduit = async (req, res) => {
-//   try {
-//     const { id } = req.params;
-//     const { utilisateurId, boutiqueId } = req.body;
+    // console.log(req.body);
 
-//     console.log(req.body);
+    // 🔹 Vérifier existence du produit
+    const produit = await Produit.findByPk(id);
+    if (!produit) {
+      return res.status(404).json({ message: "Produit non trouvé." });
+    }
 
-//     // Vérifier existence du produit
-//     const produit = await Produit.findByPk(id);
-//     if (!produit) {
-//       return res.status(404).json({ message: "Produit non trouvé." });
-//     }
+    // 🔹 Vérifier utilisateur admin
+    const utilisateur = await Utilisateur.findByPk(utilisateurId);
+    if (!utilisateur || utilisateur.roleId !== 1) {
+      return res
+        .status(403)
+        .json({ message: "Seul l’administrateur peut annuler un produit." });
+    }
 
-//     // Vérifier utilisateur admin
-//     const utilisateur = await Utilisateur.findByPk(utilisateurId);
-//     if (!utilisateur || utilisateur.roleId !== 1) {
-//       return res
-//         .status(403)
-//         .json({ message: "Seul l’administrateur peut supprimer un produit." });
-//     }
+    // 🔹 Vérifier si le produit est déjà annulé
+    if (produit.status === "ANNULER") {
+      return res.status(400).json({ message: "Ce produit est déjà annulé." });
+    }
 
-//     // 🔢 Valeur du stock avant suppression
-//     const valeurStockAvant =
-//       produit.prix_achat * produit.stock_actuel;
+    // 💰 Ancienne valeur du stock
+    const ancienneValeur = produit.prix_achat * produit.stock_actuel;
 
-//     // ✅ Transaction globale
-//     const result = await sequelize.transaction(async (t) => {
-//       // 🏬 Trouver la boutique concernée
-//       const boutique = await Boutique.findByPk(boutiqueId, {
-//         transaction: t,
-//       });
+    await sequelize.transaction(async (t) => {
+      const boutique = await Boutique.findByPk(boutiqueId, { transaction: t });
 
-//       if (boutique) {
-//         // 🔁 Récupérer tous les vendeurs de la boutique
-//         const vendeurs = await Utilisateur.findAll({
-//           where: { boutiqueId: boutique.id },
-//           transaction: t,
-//         });
+      if (boutique) {
+        // 🔹 Tous les vendeurs de la boutique
+        const vendeurs = await Utilisateur.findAll({
+          where: { boutiqueId: boutique.id },
+          transaction: t,
+        });
 
-//         // 🧾 Déduire VALEUR_STOCK_PUR pour chaque vendeur
-//         for (const vendeur of vendeurs) {
-//           const caisseVendeur = await getCaisseByType(
-//             "VALEUR_STOCK_PUR",
-//             vendeur.id,
-//             t
-//           );
-//           if (caisseVendeur) {
-//             caisseVendeur.solde_actuel -= valeurStockAvant;
-//             await caisseVendeur.save({ transaction: t });
-//           }
-//         }
+        // 🔄 Déduire VALEUR_STOCK_PUR pour chaque vendeur
+        for (const vendeur of vendeurs) {
+          const caisseVendeur = await getCaisseByType(
+            "VALEUR_STOCK_PUR",
+            vendeur.id,
+            t
+          );
+          if (caisseVendeur) {
+            caisseVendeur.solde_actuel -= ancienneValeur;
+            await caisseVendeur.save({ transaction: t });
+          }
+        }
 
-//         // 👨‍💼 Déduire pour l’admin de la boutique
-//         if (boutique.utilisateurId) {
-//           const adminBoutique = await Utilisateur.findByPk(
-//             boutique.utilisateurId,
-//             { transaction: t }
-//           );
+        // 🔹 Déduire aussi la caisse de l’admin boutique
+        if (boutique.utilisateurId) {
+          const adminBoutique = await Utilisateur.findByPk(
+            boutique.utilisateurId,
+            { transaction: t }
+          );
 
-//           if (adminBoutique) {
-//             const caisseAdmin = await getCaisseByType(
-//               "VALEUR_STOCK_PUR",
-//               adminBoutique.id,
-//               t
-//             );
-//             if (caisseAdmin) {
-//               caisseAdmin.solde_actuel -= valeurStockAvant;
-//               await caisseAdmin.save({ transaction: t });
-//             }
-//           }
-//         }
-//       }
+          if (adminBoutique) {
+            const caisseAdmin = await getCaisseByType(
+              "VALEUR_STOCK_PUR",
+              adminBoutique.id,
+              t
+            );
+            if (caisseAdmin) {
+              caisseAdmin.solde_actuel -= ancienneValeur;
+              await caisseAdmin.save({ transaction: t });
+            }
+          }
+        }
+      }
 
-//       // 🗑️ Supprimer le produit
-//       await produit.destroy({ transaction: t });
+      // ⚠️ Ne pas supprimer — on marque comme annulé
+      produit.status = "ANNULER";
+      produit.commentaire =
+        "Produit annulé par " +
+        utilisateur.vcFirstname +
+        " " +
+        utilisateur.vcLastname +
+        " le " +
+        new Date().toLocaleString("fr-FR");
+      await produit.save({ transaction: t });
+    });
 
-//       return true;
-//     });
-
-//     // ✅ Réponse finale
-//     res.status(200).json({
-//       message: "Produit supprimé avec succès.",
-//     });
-//   } catch (error) {
-//     console.error("❌ Erreur lors de la suppression du produit :", error);
-//     res.status(500).json({
-//       message: "Erreur interne du serveur.",
-//       error: error.message,
-//     });
-//   }
-// };
-
-
-// ✅ Supprimer un produit (uniquement par admin)
-// const supprimerProduit = async (req, res) => {
-//   try {
-//     const { id } = req.params;
-//     const { utilisateurId, boutiqueId } = req.body;
-
-//     // Vérifier existence du produit
-//     const produit = await Produit.findByPk(id);
-//     if (!produit) {
-//       return res.status(404).json({ message: "Produit non trouvé." });
-//     }
-
-//     // Vérifier utilisateur admin
-//     const utilisateur = await Utilisateur.findByPk(utilisateurId);
-//     if (!utilisateur || utilisateur.roleId !== 1) {
-//       return res
-//         .status(403)
-//         .json({ message: "Seul l’administrateur peut supprimer un produit." });
-//     }
-
-//     // Ancienne valeur du stock
-//     const ancienneValeur = produit.prix_achat * produit.stock_actuel;
-
-//     // ✅ Transaction globale
-//     await sequelize.transaction(async (t) => {
-//       const boutique = await Boutique.findByPk(boutiqueId, { transaction: t });
-//       if (boutique) {
-//         // Récupérer tous les vendeurs de la boutique
-//         const vendeurs = await Utilisateur.findAll({
-//           where: { boutiqueId: boutique.id },
-//           transaction: t,
-//         });
-
-//         // 🧾 Déduire VALEUR_STOCK_PUR pour chaque vendeur
-//         for (const vendeur of vendeurs) {
-//           const caisseVendeur = await getCaisseByType(
-//             "VALEUR_STOCK_PUR",
-//             vendeur.id,
-//             t
-//           );
-//           if (caisseVendeur) {
-//             caisseVendeur.solde_actuel -= ancienneValeur;
-//             await caisseVendeur.save({ transaction: t });
-//           }
-//         }
-
-//         // 👨‍💼 Déduire la caisse de l’admin
-//         if (boutique.utilisateurId) {
-//           const adminBoutique = await Utilisateur.findByPk(
-//             boutique.utilisateurId,
-//             { transaction: t }
-//           );
-
-//           if (adminBoutique) {
-//             const caisseAdmin = await getCaisseByType(
-//               "VALEUR_STOCK_PUR",
-//               adminBoutique.id,
-//               t
-//             );
-//             if (caisseAdmin) {
-//               caisseAdmin.solde_actuel -= ancienneValeur;
-//               await caisseAdmin.save({ transaction: t });
-//             }
-//           }
-//         }
-//       }
-
-//       // 🗑️ Supprimer le produit
-//       await produit.destroy({ transaction: t });
-//     });
-
-//     res.status(200).json({ message: "Produit supprimé avec succès." });
-//   } catch (error) {
-//     console.error("❌ Erreur lors de la suppression du produit :", error);
-//     res.status(500).json({
-//       message: "Erreur interne du serveur.",
-//       error: error.message,
-//     });
-//   }
-// };
-
+    res.status(200).json({ message: "Produit annulé avec succès." });
+  } catch (error) {
+    console.error("❌ Erreur lors de l'annulation du produit :", error);
+    res.status(500).json({
+      message: "Erreur interne du serveur.",
+      error: error.message,
+    });
+  }
+};
 
 // ✅ Supprimer un produit (uniquement par admin)
 const supprimerProduit = async (req, res) => {
@@ -663,13 +582,11 @@ const supprimerProduit = async (req, res) => {
   }
 };
 
-
-
-
 module.exports = {
   ajouterProduit,
   recupererProduitsBoutique,
   produitsEnAlerteStock,
   modifierProduit,
-  supprimerProduit
+  supprimerProduit,
+  annulerProduit,
 };

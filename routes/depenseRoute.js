@@ -7,5 +7,6 @@ router.get('/liste', depenseController.recupererDepenses);
 router.get('/consulter/:id', depenseController.consulterDepense);
 router.put('/modifier/:id', depenseController.modifierDepense);
 router.delete('/supprimer/:id', depenseController.supprimerDepense);
+router.delete('/annuler/:id', depenseController.annulerDepense);
 
 module.exports = router;

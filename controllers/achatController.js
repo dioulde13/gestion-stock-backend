@@ -35,6 +35,133 @@ const getUserFromToken = async (req, res) => {
   }
 };
 
+const annulerAchat = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const utilisateur = await getUserFromToken(req, res);
+    if (!utilisateur) return;
+
+    const { id } = req.params;
+
+    // 🔹 Récupérer l'achat avec ses lignes
+    const achat = await Achat.findByPk(id, {
+      include: [{ model: LigneAchat }],
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+
+    if (!achat) throw new Error("Achat non trouvé.");
+    if (achat.status === "ANNULER")
+      throw new Error("Cet achat est déjà annulé.");
+
+
+    const total = achat.total;
+
+    // === 🔁 1️⃣ Restaurer le stock des produits (retirer ce qui a été ajouté)
+    for (const ligne of achat.LigneAchats) {
+      const produit = await Produit.findByPk(ligne.produitId, {
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+      if (produit) {
+        if (produit.stock_actuel < ligne.quantite) {
+          throw new Error(
+            `Impossible d'annuler : le stock du produit ${produit.nom} est inférieur à la quantité de l'achat.`
+          );
+        }
+
+        await produit.update(
+          { stock_actuel: produit.stock_actuel - ligne.quantite },
+          { transaction: t }
+        );
+      }
+    }
+
+    // === 💰 2️⃣ Restaurer la caisse utilisateur
+    const caisseUser = await getCaisseByType("CAISSE", utilisateur.id, t);
+    if (caisseUser) {
+      caisseUser.solde_actuel += total;
+      await caisseUser.save({ transaction: t });
+    }
+
+    // === 💰 3️⃣ Restaurer les caisses des vendeurs et admin
+    const boutique = await Boutique.findByPk(utilisateur.boutiqueId, {
+      transaction: t,
+    });
+
+    if (boutique) {
+      const vendeursBoutique = await Utilisateur.findAll({
+        where: { boutiqueId: boutique.id },
+        transaction: t,
+      });
+
+      // --- Réduire VALEUR_STOCK_PUR pour tous les vendeurs
+      for (const vendeur of vendeursBoutique) {
+        const caisseVSP = await getCaisseByType(
+          "VALEUR_STOCK_PUR",
+          vendeur.id,
+          t
+        );
+        if (caisseVSP) {
+          caisseVSP.solde_actuel -= total;
+          await caisseVSP.save({ transaction: t });
+        }
+      }
+
+      // --- Corriger les caisses de l'admin
+      if (boutique.utilisateurId) {
+        const admin = await Utilisateur.findByPk(boutique.utilisateurId, {
+          transaction: t,
+        });
+
+        if (admin) {
+          const caisseVSPAdmin = await getCaisseByType(
+            "VALEUR_STOCK_PUR",
+            admin.id,
+            t
+          );
+          const caisseCaisseAdmin = await getCaisseByType(
+            "CAISSE",
+            admin.id,
+            t
+          );
+
+          if (caisseVSPAdmin && caisseCaisseAdmin) {
+            caisseVSPAdmin.solde_actuel -= total;
+            caisseCaisseAdmin.solde_actuel += total;
+
+            await caisseVSPAdmin.save({ transaction: t });
+            await caisseCaisseAdmin.save({ transaction: t });
+          }
+        }
+      }
+    }
+
+    // === 🚫 4️⃣ Changer le statut de l'achat
+    achat.nomPersonneAnnuler = `${utilisateur.nom ?? ""}`.trim();
+    achat.status = "ANNULER";
+    await achat.save({ transaction: t });
+
+    await t.commit();
+
+    // === 🔔 5️⃣ Notification ou socket
+    const io = req.app.get("io");
+    if (io) io.emit("caisseMisAJour");
+
+    return res.status(200).json({
+      success: true,
+      message: "Achat annulé et effets restaurés avec succès.",
+    });
+  } catch (error) {
+    if (!t.finished) await t.rollback();
+    console.error("Erreur lors de l'annulation de l'achat :", error);
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Erreur interne du serveur.",
+    });
+  }
+};
+
 /**
  * ✅ Créer un achat (avec lignes + mise à jour stock et caisses)
  */
@@ -43,7 +170,7 @@ const creerAchat = async (req, res) => {
   try {
     const utilisateur = await getUserFromToken(req, res);
     if (!utilisateur) return;
-      
+
     const { fournisseurId, lignes, type = "ACHAT" } = req.body;
 
     if (!["ACHAT", "CREDIT"].includes(type)) {
@@ -98,7 +225,7 @@ const creerAchat = async (req, res) => {
         total,
         boutiqueId: utilisateur.boutiqueId,
         type,
-        status:"VALIDER",
+        status: "VALIDER",
       },
       { transaction: t }
     );
@@ -145,9 +272,6 @@ const creerAchat = async (req, res) => {
       );
     }
 
-   
-
-
     // Mise à jour des caisses de l'admin de la boutique
     const boutique = await Boutique.findByPk(utilisateur.boutiqueId, {
       transaction: t,
@@ -161,23 +285,22 @@ const creerAchat = async (req, res) => {
         transaction: t,
       });
 
+      const vendeursBoutique = await Utilisateur.findAll({
+        where: { boutiqueId: boutique.id },
+        transaction: t,
+      });
 
-       const vendeursBoutique = await Utilisateur.findAll({
-          where: { boutiqueId: boutique.id },
-          transaction: t,
-        });
-
-        for (const vendeur of vendeursBoutique) {
-          const caisseVSP = await getCaisseByType(
-            "VALEUR_STOCK_PUR",
-            vendeur.id,
-            t
-          );
-          if (caisseVSP) {
-            caisseVSP.solde_actuel += total;
-            await caisseVSP.save({ transaction: t });
-          }
+      for (const vendeur of vendeursBoutique) {
+        const caisseVSP = await getCaisseByType(
+          "VALEUR_STOCK_PUR",
+          vendeur.id,
+          t
+        );
+        if (caisseVSP) {
+          caisseVSP.solde_actuel += total;
+          await caisseVSP.save({ transaction: t });
         }
+      }
 
       if (admin) {
         const caisseVSPAdmin = await getCaisseByType(
@@ -213,7 +336,6 @@ const creerAchat = async (req, res) => {
       .json({ message: error.message || "Erreur interne du serveur." });
   }
 };
-
 
 const recupererAchats = async (req, res) => {
   try {
@@ -270,11 +392,11 @@ const recupererAchats = async (req, res) => {
               ],
             },
           ],
-        },  
+        },
         {
           model: Fournisseur,
           attributes: ["id", "nom"], // ← on ajoute 'nom' ici pour récupérer le nom du vendeur
-       },
+        },
         {
           model: Utilisateur,
           attributes: ["id", "nom"], // ← on ajoute 'nom' ici pour récupérer le nom du vendeur
@@ -403,4 +525,5 @@ module.exports = {
   creerAchat,
   recupererAchats,
   supprimerAchat,
+  annulerAchat,
 };

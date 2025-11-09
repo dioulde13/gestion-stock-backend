@@ -137,6 +137,7 @@ const ajouterMouvementStock = async (req, res) => {
           quantite,
           motif,
           typeMvtId,
+          status:"VALIDER",
           utilisateurId: utilisateur.id,
           boutiqueId: produit.boutiqueId,
           date: new Date(),
@@ -287,6 +288,116 @@ const modifierMouvementStock = async (req, res) => {
     res.status(500).json({ message: "Erreur interne du serveur." });
   }
 };
+
+const annulerMouvementStock = async (req, res) => {
+  try {
+    const utilisateur = await getUserFromToken(req, res);
+    if (!utilisateur || utilisateur.status) return;
+
+    const { id } = req.params;
+
+    const mouvement = await MouvementStock.findByPk(id, {
+      include: Produit,
+    });
+
+    if (!mouvement)
+      return res.status(404).json({ message: "Mouvement non trouvé." });
+
+    // 🚫 Vérification de sécurité : seul le vendeur de la boutique ou l’admin peut annuler
+    if (
+      utilisateur.Role.nom === "VENDEUR" &&
+      mouvement.boutiqueId !== utilisateur.boutiqueId
+    ) {
+      return res
+        .status(403)
+        .json({ message: "Accès refusé à cette ressource." });
+    }
+
+    // 🚫 Empêcher la double annulation
+    if (mouvement.status === "ANNULER") {
+      return res
+        .status(400)
+        .json({ message: "Ce mouvement a déjà été annulé." });
+    }
+
+    const typeMvt = await TypeMvt.findByPk(mouvement.typeMvtId);
+    const produit = mouvement.Produit;
+    const montant = mouvement.quantite * (produit.prix_achat || 0);
+
+    await sequelize.transaction(async (t) => {
+      // 🔄 Inversion du stock
+      produit.stock_actuel +=
+        typeMvt.type === "ENTRE" ? -mouvement.quantite : mouvement.quantite;
+      await produit.save({ transaction: t });
+
+      // 🔄 Mise à jour de la VALEUR_STOCK_PUR
+      const boutique = await Boutique.findByPk(produit.boutiqueId, {
+        transaction: t,
+      });
+
+      if (boutique) {
+        // 🔹 Pour chaque vendeur de la boutique
+        const vendeursBoutique = await Utilisateur.findAll({
+          where: { boutiqueId: boutique.id },
+          transaction: t,
+        });
+
+        for (const vendeur of vendeursBoutique) {
+          const caisseVSP = await getCaisseByType(
+            "VALEUR_STOCK_PUR",
+            vendeur.id,
+            t
+          );
+          if (caisseVSP) {
+            caisseVSP.solde_actuel +=
+              typeMvt.type === "ENTRE" ? -montant : montant;
+            await caisseVSP.save({ transaction: t });
+          }
+        }
+
+        // 🔹 Pour l’admin de la boutique
+        if (boutique.utilisateurId) {
+          const adminBoutique = await Utilisateur.findByPk(
+            boutique.utilisateurId,
+            { transaction: t }
+          );
+          if (
+            adminBoutique &&
+            !vendeursBoutique.some((v) => v.id === adminBoutique.id)
+          ) {
+            const caisseAdminVSP = await getCaisseByType(
+              "VALEUR_STOCK_PUR",
+              adminBoutique.id,
+              t
+            );
+            if (caisseAdminVSP) {
+              caisseAdminVSP.solde_actuel +=
+                typeMvt.type === "ENTRE" ? -montant : montant;
+              await caisseAdminVSP.save({ transaction: t });
+            }
+          }
+        }
+      }
+
+      // 🧾 Marquer le mouvement comme annulé au lieu de le supprimer
+      mouvement.status = "ANNULER";
+      mouvement.commentaire =
+        "Mouvement annulé par " +
+        utilisateur.vcFirstname +
+        " " +
+        utilisateur.vcLastname +
+        " le " +
+        new Date().toLocaleString("fr-FR");
+      await mouvement.save({ transaction: t });
+    });
+
+    res.status(200).json({ message: "Mouvement annulé avec succès." });
+  } catch (error) {
+    console.error("Erreur lors de l'annulation du mouvement :", error);
+    res.status(500).json({ message: "Erreur interne du serveur." });
+  }
+};
+
 
 /**
  * Supprimer un mouvement de stock
@@ -471,4 +582,5 @@ module.exports = {
   supprimerMouvementStock,
   recupererMouvementsStock,
   consulterMouvementStock,
+  annulerMouvementStock
 };
