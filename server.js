@@ -168,10 +168,10 @@ app.use(express.urlencoded({ extended: true }));
 
 //.sync({ alter: true })
 // Synchroniser la base
-sequelize
-  .sync()
-  .then(() => console.log("Tables créées avec succès"))
-  .catch((error) => console.error("Erreur création tables :", error));
+// sequelize
+//   .sync()
+//   .then(() => console.log("Tables créées avec succès"))
+//   .catch((error) => console.error("Erreur création tables :", error));
 
 app.get("/", (req, res) => {
   res.send("Bienvenue sur l'API de gestion de stock !");
@@ -192,11 +192,20 @@ io.on("connection", (socket) => {
   });
 });
 
-app.get("/", (req, res) => {
-  res.send("Backend en ligne");
+
+// Sequelize sync
+sequelize
+  .sync({ force: true }) // Remettre  force: true si besoin
+  .then(() => console.log("Tables créées avec succès"))
+  .catch((error) => console.error("Erreur création tables :", error));
+
+// Port Railway ou local
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Serveur démarré sur http://localhost:${PORT}`);
 });
 
-const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => {
-  console.log(`Serveur démarré sur http://localhost:${PORT}`);
-});
+// const PORT = process.env.PORT || 3000;
+// server.listen(PORT, () => {
+//   console.log(`Serveur démarré sur http://localhost:${PORT}`);
+// });
