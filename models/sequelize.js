@@ -74,42 +74,19 @@
 
 // module.exports = sequelize;
 
+require("dotenv").config();
 const { Sequelize } = require("sequelize");
-const dbConfig = require("../config/dbConfig");
 
-// Création de l'instance Sequelize
 const sequelize = new Sequelize(
-  dbConfig.database,
-  dbConfig.user,
-  dbConfig.password,
+  process.env.MYSQLDATABASE,
+  process.env.MYSQLUSER,
+  process.env.MYSQLPASSWORD,
   {
-    host: dbConfig.host,
+    host: process.env.MYSQLHOST,
+    port: parseInt(process.env.MYSQLPORT || "3306"),
     dialect: "mysql",
-    port: dbConfig.port,
-    logging: false,
-    dialectOptions: {
-      multipleStatements: true, // Permet plusieurs requêtes en une seule
-      connectTimeout: 60000, // Timeout plus long
-    },
-    pool: {
-      max: 10, // max connexions simultanées
-      min: 0,
-      acquire: 30000, // temps avant échec connexion
-      idle: 10000, // fermeture connexion inactive
-    },
   }
 );
 
-// Test de connexion
-async function testConnection() {
-  try {
-    await sequelize.authenticate();
-    console.log("✅ Connexion à la base MySQL réussie !");
-  } catch (error) {
-    console.error("❌ Impossible de se connecter à MySQL :", error);
-  }
-}
-
-testConnection();
-
 module.exports = sequelize;
+
