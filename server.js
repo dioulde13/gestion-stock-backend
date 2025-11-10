@@ -10,6 +10,7 @@ const dbConfig = require("./config/dbConfig");
 const sequelize = require("./models/sequelize");
 const cors = require("cors");
 
+//sussuusus
 // Charger tes modèles
 require("./models/produit");
 require("./models/notification");
