@@ -80,11 +80,12 @@
 
 const express = require("express");
 const http = require("http");
+require("dotenv").config();
 const { Server } = require("socket.io");
 const bodyParser = require("body-parser");
+const dbConfig = require("./configs/dbConfig");
 const sequelize = require("./models/sequelize");
 const cors = require("cors");
-require("dotenv").config();
 
 // Charger tes modèles
 require("./models/notification");
@@ -102,8 +103,6 @@ require("./models/credit");
 require("./models/payementCredit");
 require("./models/caisse");
 require("./models/boutique");
-
-require("dotenv").config();
 
 const produitRoute = require("./routes/produitRoute");
 const categorieRoutes = require("./routes/categorieRoutes");
@@ -184,6 +183,17 @@ io.on("connection", (socket) => {
   socket.on("disconnect", () => {
     console.log("Client déconnecté:", socket.id);
   });
+});
+
+app.get("/check-db-connection", async (req, res) => {
+  try {
+    const connection = await mysql.createConnection(dbConfig);
+    await connection.ping();
+    await connection.end();
+    res.json({ success: true, message: "Connexion à la base de données réussie" });
+  } catch (error) {
+    res.status(500).json({ success: false, message: "Erreur de connexion", error: error.message });
+  }
 });
 
 
