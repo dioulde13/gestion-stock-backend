@@ -82,6 +82,7 @@ const express = require("express");
 const http = require("http");
 require("dotenv").config();
 const { Server } = require("socket.io");
+const mysql = require("mysql2/promise"); // ✅ Importation correcte
 const bodyParser = require("body-parser");
 const dbConfig = require("./config/dbConfig");
 const sequelize = require("./models/sequelize");
