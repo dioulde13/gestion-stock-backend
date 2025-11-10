@@ -83,7 +83,7 @@ const http = require("http");
 require("dotenv").config();
 const { Server } = require("socket.io");
 const bodyParser = require("body-parser");
-const dbConfig = require("./configs/dbConfig");
+const dbConfig = require("./config/dbConfig");
 const sequelize = require("./models/sequelize");
 const cors = require("cors");
 
