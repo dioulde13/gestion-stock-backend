@@ -45,16 +45,6 @@
 // // 30 secondes pour acquérir la connexion
 // module.exports = dbConfig;
 
-// require("dotenv").config();
-
-// module.exports = {
-//   host: process.env.MYSQLHOST,
-//   user: process.env.MYSQLUSER,
-//   password: process.env.MYSQLPASSWORD,
-//   database: process.env.MYSQLDATABASE,
-//   port: parseInt(process.env.MYSQLPORT, 10) || 3306,
-// };
-
 
 require("dotenv").config();
 
