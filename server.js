@@ -166,12 +166,6 @@ app.use("/api/notification", notificationRoute);
 
 app.use(express.urlencoded({ extended: true }));
 
-//.sync({ alter: true })
-// Synchroniser la base
-// sequelize
-//   .sync()
-//   .then(() => console.log("Tables créées avec succès"))
-//   .catch((error) => console.error("Erreur création tables :", error));
 
 app.get("/", (req, res) => {
   res.send("Bienvenue sur l'API de gestion de stock !");
@@ -193,14 +187,22 @@ io.on("connection", (socket) => {
 });
 
 
-// Sequelize sync
-sequelize
-  .sync({ force: true }) // Remettre  force: true si besoin
-  .then(() => console.log("Tables créées avec succès"))
-  .catch((error) => console.error("Erreur création tables :", error));
+(async () => {
+  try {
+    // Synchroniser les modèles (tables) si besoin
+    await sequelize.sync({ alter: true });  // ou { force: false } selon vos besoins
+    console.log("🔄 Synchronisation des tables terminée");
+    app.listen(PORT, () => {
+      console.log(`🚀 Serveur démarré sur http://localhost:${PORT}`);
+    });
+  } catch (error) {
+    console.error("Erreur lors de la synchronisation / démarrage :", error);
+  }
+})();
+
 
 // Port Railway ou local
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log(`🚀 Serveur démarré sur http://localhost:${PORT}`);
 });

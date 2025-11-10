@@ -53,28 +53,42 @@
 const { Sequelize } = require("sequelize");
 const dbConfig = require("../config/dbConfig");
 
-// Configuration Sequelize
 const sequelize = new Sequelize(
   dbConfig.database,
   dbConfig.user,
   dbConfig.password,
   {
     host: dbConfig.host,
-    dialect: "mysql",
     port: dbConfig.port,
+    dialect: "mysql",
     logging: false,
+
     dialectOptions: {
-      multipleStatements: true, // Permet d'exécuter plusieurs requêtes en une seule
-      connectTimeout: 60000, // Augmente le timeout de connexion
+      multipleStatements: true,
+      connectTimeout: 120000,     // 2 minutes pour être plus généreux
     },
     pool: {
-      max: 10, // Nombre max de connexions simultanées
+      max: 10,
       min: 0,
-      acquire: 30000, // Timeout avant l'échec d'une connexion
-      idle: 10000, // Temps avant de fermer une connexion inactive
+      acquire: 120000,            // 2 minutes avant échec de l’acquisition
+      idle: 10000,
+    },
+    retry: {
+      max: 3                      // retenter jusqu’à 3 fois en cas d’échec
     },
   }
 );
+
+// Vérifier la connexion
+(async () => {
+  try {
+    await sequelize.authenticate();
+    console.log("✅ Connexion à la base de données réussie !");
+  } catch (error) {
+    console.error("❌ Impossible de se connecter à la base de données :", error);
+    process.exit(1);
+  }
+})();
 
 module.exports = sequelize;
 
