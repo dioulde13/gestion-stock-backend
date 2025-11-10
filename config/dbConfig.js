@@ -45,13 +45,25 @@
 // // 30 secondes pour acquérir la connexion
 // module.exports = dbConfig;
 
+// require("dotenv").config();
+
+// module.exports = {
+//   host: process.env.MYSQLHOST,
+//   user: process.env.MYSQLUSER,
+//   password: process.env.MYSQLPASSWORD,
+//   database: process.env.MYSQLDATABASE,
+//   port: parseInt(process.env.MYSQLPORT, 10) || 3306,
+// };
+
+
 require("dotenv").config();
 
 module.exports = {
-  host: process.env.MYSQLHOST,
+  host: process.env.MYSQLHOST, // Domaine public Railway
   user: process.env.MYSQLUSER,
   password: process.env.MYSQLPASSWORD,
   database: process.env.MYSQLDATABASE,
-  port: parseInt(process.env.MYSQLPORT, 10) || 3306,
+  port: parseInt(process.env.MYSQLPORT || "3306"), // Port public Railway
 };
+
 
