@@ -1,10 +1,10 @@
 const Versement = require('../models/versement');
+const Role = require("../models/role");
 const Utilisateur = require('../models/utilisateur');
 const Boutique = require('../models/boutique');
-const Role = require('../models/role');
 const sequelize = require('../models/sequelize');
-const jwt = require('jsonwebtoken');
-const { getCaisseByType } = require('../utils/caisseUtils');
+const jwt = require("jsonwebtoken");
+const { getCaisseByType } = require("../utils/caisseUtils");
 
 /* ============================================================
    🔐 Utilitaire : Récupérer l'utilisateur connecté depuis le token
