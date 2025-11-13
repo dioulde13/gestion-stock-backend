@@ -27,10 +27,12 @@ require("./models/credit");
 require("./models/payementCredit");
 require("./models/caisse");
 require("./models/boutique");
+require("./models/versement");
 
 
 
 const produitRoute = require("./routes/produitRoute");
+const versementRoute = require("./routes/versementRoute");
 const categorieRoutes = require("./routes/categorieRoutes");
 const utilisateurRoutes = require("./routes/utilisateurRoutes");
 const roleRoutes = require("./routes/roleRoutes");
@@ -71,6 +73,7 @@ app.use(
 );
 
 // Tes routes
+app.use("/api/versement", versementRoute);
 app.use("/api/boutique", boutiqueRoute);
 app.use("/api/caisse", caisseRoute);
 app.use("/api/credit", creditRoute);
