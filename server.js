@@ -74,7 +74,7 @@ app.use(
 
 // Tes routes
 
-app.use("/api/versement", boutiqueRoute);
+app.use("/api/versement", versementRoute);
 app.use("/api/boutique", boutiqueRoute);
 app.use("/api/caisse", caisseRoute);
 app.use("/api/credit", creditRoute);
