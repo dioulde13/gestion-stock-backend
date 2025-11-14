@@ -119,13 +119,13 @@ const validerVersement = async (req, res) => {
     }
 
     // 2️⃣ Caisse de l'admin (responsable de la boutique)
-    const boutique = await Boutique.findByPk(versement.boutiqueId, {
-      transaction: t,
-    });
-    let caisseAdmin = null;
-    if (boutique?.utilisateurId) {
-      caisseAdmin = await getCaisseByType("CAISSE", boutique.utilisateurId, t);
-    }
+    // const boutique = await Boutique.findByPk(versement.boutiqueId, {
+    //   transaction: t,
+    // });
+    // let caisseAdmin = null;
+    // if (boutique?.utilisateurId) {
+    //   caisseAdmin = await getCaisseByType("CAISSE", boutique.utilisateurId, t);
+    // }
 
     // 💰 Débit vendeur / Crédit admin
     caisseVendeur.solde_actuel -= versement.montant;
