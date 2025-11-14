@@ -100,11 +100,20 @@ const validerVersement = async (req, res) => {
       return res.status(404).json({ message: "Versement non trouvé." });
     }
 
+    // Empêcher toute modification si le versement est déjà validé ou rejeté
+    if (versement.status === "VALIDÉ") {
+      await t.rollback();
+      return res.status(400).json({ message: "Ce versement a déjà été VALIDÉ et ne peut pas être rejeté." });
+    }
+    if (versement.status === "REJETÉ") {
+      await t.rollback();
+      return res.status(400).json({ message: "Ce versement a déjà été REJETÉ et ne peut pas être validé." });
+    }
+
+    // Vérifier que le versement est bien en attente
     if (versement.status !== "EN_ATTENTE") {
       await t.rollback();
-      return res
-        .status(400)
-        .json({ message: "Ce versement a déjà été traité." });
+      return res.status(400).json({ message: "Ce versement ne peut pas être traité." });
     }
 
     // 1️⃣ Caisse du vendeur
@@ -113,28 +122,19 @@ const validerVersement = async (req, res) => {
       versement.utilisateurId,
       t
     );
-    if (!caisseVendeur) throw new Error("Caisse vendeur non trouvée.");
-    if (caisseVendeur.solde_actuel < versement.montant) {
-      throw new Error("Solde insuffisant dans la caisse du vendeur.");
+    if (!caisseVendeur) {
+      await t.rollback();
+      return res.status(404).json({ message: "Caisse vendeur non trouvée." });
     }
 
-    // 2️⃣ Caisse de l'admin (responsable de la boutique)
-    // const boutique = await Boutique.findByPk(versement.boutiqueId, {
-    //   transaction: t,
-    // });
-    // let caisseAdmin = null;
-    // if (boutique?.utilisateurId) {
-    //   caisseAdmin = await getCaisseByType("CAISSE", boutique.utilisateurId, t);
-    // }
+    if (caisseVendeur.solde_actuel < versement.montant) {
+      await t.rollback();
+      return res.status(400).json({ message: "Solde insuffisant dans la caisse du vendeur." });
+    }
 
-    // 💰 Débit vendeur / Crédit admin
+    // 💰 Débit vendeur
     caisseVendeur.solde_actuel -= versement.montant;
     await caisseVendeur.save({ transaction: t });
-
-    // if (caisseAdmin) {
-    //   caisseAdmin.solde_actuel += versement.montant;
-    //   await caisseAdmin.save({ transaction: t });
-    // }
 
     // ✅ Mise à jour du statut
     versement.status = "VALIDÉ";
@@ -144,19 +144,16 @@ const validerVersement = async (req, res) => {
 
     // 🔔 Notification temps réel
     const io = req.app.get("io");
-    io.emit("caisseMisAJour");
+    if (io) io.emit("caisseMisAJour");
 
-    res
-      .status(200)
-      .json({ message: "Versement validé avec succès.", versement });
+    res.status(200).json({ message: "Versement validé avec succès.", versement });
   } catch (error) {
     await t.rollback();
     console.error("Erreur lors de la validation du versement :", error);
-    res
-      .status(500)
-      .json({ message: error.message || "Erreur interne du serveur." });
+    res.status(500).json({ message: error.message || "Erreur interne du serveur." });
   }
 };
+
 
 /* ============================================================
    ✅ 3. Rejeter un versement (par le responsable)
@@ -180,65 +177,58 @@ const rejeterVersement = async (req, res) => {
       return res.status(404).json({ message: "Versement non trouvé." });
     }
 
+    // Empêcher toute modification si déjà rejeté
     if (versement.status === "REJETÉ") {
       await t.rollback();
-      return res.status(400).json({ message: "Ce versement est déjà rejeté." });
+      return res.status(400).json({ message: "Ce versement est déjà REJETÉ et ne peut pas être traité." });
     }
 
-    // On ne peut rejeter que les versements validés ou en attente
-    if (versement.status === "EN_ATTENTE") {
-      versement.status = "REJETÉ";
-      await versement.save({ transaction: t });
-      await t.commit();
-      return res
-        .status(200)
-        .json({
-          message: "Versement rejeté (aucune transaction de caisse).",
-          versement,
-        });
-    }
-
+    // Empêcher de rejeter un versement déjà validé si tu veux stricte interdiction
     if (versement.status === "VALIDÉ") {
-      // 🔁 Remboursement : vendeur + admin
-      const caisseVendeur = await getCaisseByType(
-        "CAISSE",
-        versement.utilisateurId,
-        t
-      );
-      const boutique = await Boutique.findByPk(versement.boutiqueId, {
-        transaction: t,
-      });
-      //   const caisseAdmin = boutique?.utilisateurId ? await getCaisseByType("CAISSE", boutique.utilisateurId, t) : null;
-
-      if (!caisseVendeur) throw new Error("Caisse vendeur non trouvée.");
-      //   if (!caisseAdmin) throw new Error("Caisse admin non trouvée.");
-
-      // 💰 Crédit vendeur / Débit admin
-      caisseVendeur.solde_actuel += versement.montant;
-      //   caisseAdmin.solde_actuel -= versement.montant;
-
-      await caisseVendeur.save({ transaction: t });
-      //   await caisseAdmin.save({ transaction: t });
-
-      versement.status = "REJETÉ";
-      await versement.save({ transaction: t });
-
-      await t.commit();
-
-      const io = req.app.get("io");
-      io.emit("caisseMisAJour");
-
-      return res
-        .status(200)
-        .json({
-          message: "Versement rejeté et montants restitués.",
-          versement,
-        });
+      await t.rollback();
+      return res.status(400).json({ message: "Ce versement est déjà VALIDÉ et ne peut pas être rejeté." });
     }
 
-    res
-      .status(400)
-      .json({ message: "Statut du versement invalide pour un rejet." });
+    // Versements EN_ATTENTE ou VALIDÉ peuvent être rejetés
+    const caisseVendeur = await getCaisseByType(
+      "CAISSE",
+      versement.utilisateurId,
+      t
+    );
+    if (!caisseVendeur) {
+      await t.rollback();
+      return res.status(404).json({ message: "Caisse vendeur non trouvée." });
+    }
+
+    // Si le versement était VALIDÉ, restituer le montant au vendeur
+    if (versement.status === "VALIDÉ") {
+      caisseVendeur.solde_actuel += versement.montant;
+      await caisseVendeur.save({ transaction: t });
+
+      // Optionnel : débit admin si tu as une caisse admin
+      // const caisseAdmin = await getCaisseByType("ADMIN", adminId, t);
+      // if (caisseAdmin) {
+      //   caisseAdmin.solde_actuel -= versement.montant;
+      //   await caisseAdmin.save({ transaction: t });
+      // }
+    }
+
+    // Mettre à jour le statut en REJETÉ
+    versement.status = "REJETÉ";
+    await versement.save({ transaction: t });
+
+    await t.commit();
+
+    const io = req.app.get("io");
+    if (io) io.emit("caisseMisAJour");
+
+    res.status(200).json({
+      message:
+        versement.status === "VALIDÉ"
+          ? "Versement rejeté et montants restitués."
+          : "Versement rejeté (aucune transaction de caisse).",
+      versement,
+    });
   } catch (error) {
     await t.rollback();
     console.error("Erreur lors du rejet du versement :", error);
@@ -247,6 +237,7 @@ const rejeterVersement = async (req, res) => {
       .json({ message: error.message || "Erreur interne du serveur." });
   }
 };
+
 
 /* ============================================================
    ✅ 4. Récupérer les versements selon le rôle
