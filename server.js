@@ -1,5 +1,3 @@
-
-
 const express = require("express");
 const http = require("http");
 require("dotenv").config();
@@ -28,8 +26,6 @@ require("./models/payementCredit");
 require("./models/caisse");
 require("./models/boutique");
 require("./models/versement");
-
-
 
 const produitRoute = require("./routes/produitRoute");
 const versementRoute = require("./routes/versementRoute");
@@ -95,7 +91,6 @@ app.use("/api/notification", notificationRoute);
 
 app.use(express.urlencoded({ extended: true }));
 
-
 app.get("/", (req, res) => {
   res.send("Bienvenue sur l'API de gestion de stock !");
 });
@@ -123,18 +118,17 @@ app.get("/check-db-connection", async (req, res) => {
 
     res.json({
       success: true,
-      message: "Connexion à la base de données réussie"
+      message: "Connexion à la base de données réussie",
     });
   } catch (error) {
     console.error("Erreur connexion MySQL :", error);
     res.status(500).json({
       success: false,
       message: "Erreur de connexion",
-      error: error.message
+      error: error.message,
     });
   }
 });
-
 
 // (async () => {
 //   try {
@@ -155,10 +149,15 @@ sequelize
   .then(() => console.log("Tables créées avec succès"))
   .catch((error) => console.error("Erreur création tables :", error));
 
-
 // Port Railway ou local
+// const PORT = process.env.PORT || 3000;
+// app.listen(PORT, () => {
+//   console.log(`🚀 Serveur démarré sur http://localhost:${PORT}`);
+// });
+
+// Démarrer Socket.IO + Express via server.listen()
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
   console.log(`🚀 Serveur démarré sur http://localhost:${PORT}`);
 });
 
