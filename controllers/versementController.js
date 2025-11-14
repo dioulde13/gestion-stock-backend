@@ -1,8 +1,8 @@
-const Versement = require('../models/versement');
+const Versement = require("../models/versement");
 const Role = require("../models/role");
-const Utilisateur = require('../models/utilisateur');
-const Boutique = require('../models/boutique');
-const sequelize = require('../models/sequelize');
+const Utilisateur = require("../models/utilisateur");
+const Boutique = require("../models/boutique");
+const sequelize = require("../models/sequelize");
 const jwt = require("jsonwebtoken");
 const { getCaisseByType } = require("../utils/caisseUtils");
 
@@ -19,7 +19,9 @@ const getUserFromToken = async (req, res) => {
   const token = authHeader.split(" ")[1];
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const utilisateur = await Utilisateur.findByPk(decoded.id, { include: Role });
+    const utilisateur = await Utilisateur.findByPk(decoded.id, {
+      include: Role,
+    });
     if (!utilisateur) {
       res.status(404).json({ message: "Utilisateur non trouvé." });
       return null;
@@ -39,14 +41,18 @@ const ajouterVersement = async (req, res) => {
   const { montant, description } = req.body;
 
   if (!montant || !description) {
-    return res.status(400).json({ message: "Tous les champs sont obligatoires." });
+    return res
+      .status(400)
+      .json({ message: "Tous les champs sont obligatoires." });
   }
 
   const utilisateur = await getUserFromToken(req, res);
   if (!utilisateur) return;
 
   if (utilisateur.Role.nom !== "VENDEUR") {
-    return res.status(403).json({ message: "Seuls les vendeurs peuvent créer un versement." });
+    return res
+      .status(403)
+      .json({ message: "Seuls les vendeurs peuvent créer un versement." });
   }
 
   try {
@@ -62,7 +68,9 @@ const ajouterVersement = async (req, res) => {
         { transaction: t }
       );
 
-      res.status(201).json({ message: "Versement créé avec succès.", versement });
+      res
+        .status(201)
+        .json({ message: "Versement créé avec succès.", versement });
     });
   } catch (error) {
     console.error("Erreur lors de la création du versement :", error);
@@ -79,7 +87,9 @@ const validerVersement = async (req, res) => {
   if (!utilisateur) return;
 
   if (utilisateur.Role.nom !== "ADMIN") {
-    return res.status(403).json({ message: "Seul un responsable peut valider un versement." });
+    return res
+      .status(403)
+      .json({ message: "Seul un responsable peut valider un versement." });
   }
 
   const t = await sequelize.transaction();
@@ -92,18 +102,26 @@ const validerVersement = async (req, res) => {
 
     if (versement.status !== "EN_ATTENTE") {
       await t.rollback();
-      return res.status(400).json({ message: "Ce versement a déjà été traité." });
+      return res
+        .status(400)
+        .json({ message: "Ce versement a déjà été traité." });
     }
 
     // 1️⃣ Caisse du vendeur
-    const caisseVendeur = await getCaisseByType("CAISSE", versement.utilisateurId, t);
+    const caisseVendeur = await getCaisseByType(
+      "CAISSE",
+      versement.utilisateurId,
+      t
+    );
     if (!caisseVendeur) throw new Error("Caisse vendeur non trouvée.");
     if (caisseVendeur.solde_actuel < versement.montant) {
       throw new Error("Solde insuffisant dans la caisse du vendeur.");
     }
 
     // 2️⃣ Caisse de l'admin (responsable de la boutique)
-    const boutique = await Boutique.findByPk(versement.boutiqueId, { transaction: t });
+    const boutique = await Boutique.findByPk(versement.boutiqueId, {
+      transaction: t,
+    });
     let caisseAdmin = null;
     if (boutique?.utilisateurId) {
       caisseAdmin = await getCaisseByType("CAISSE", boutique.utilisateurId, t);
@@ -128,11 +146,15 @@ const validerVersement = async (req, res) => {
     const io = req.app.get("io");
     io.emit("caisseMisAJour");
 
-    res.status(200).json({ message: "Versement validé avec succès.", versement });
+    res
+      .status(200)
+      .json({ message: "Versement validé avec succès.", versement });
   } catch (error) {
     await t.rollback();
     console.error("Erreur lors de la validation du versement :", error);
-    res.status(500).json({ message: error.message || "Erreur interne du serveur." });
+    res
+      .status(500)
+      .json({ message: error.message || "Erreur interne du serveur." });
   }
 };
 
@@ -145,7 +167,9 @@ const rejeterVersement = async (req, res) => {
   if (!utilisateur) return;
 
   if (utilisateur.Role.nom !== "ADMIN") {
-    return res.status(403).json({ message: "Seul un responsable peut rejeter un versement." });
+    return res
+      .status(403)
+      .json({ message: "Seul un responsable peut rejeter un versement." });
   }
 
   const t = await sequelize.transaction();
@@ -166,24 +190,35 @@ const rejeterVersement = async (req, res) => {
       versement.status = "REJETÉ";
       await versement.save({ transaction: t });
       await t.commit();
-      return res.status(200).json({ message: "Versement rejeté (aucune transaction de caisse).", versement });
+      return res
+        .status(200)
+        .json({
+          message: "Versement rejeté (aucune transaction de caisse).",
+          versement,
+        });
     }
 
     if (versement.status === "VALIDÉ") {
       // 🔁 Remboursement : vendeur + admin
-      const caisseVendeur = await getCaisseByType("CAISSE", versement.utilisateurId, t);
-      const boutique = await Boutique.findByPk(versement.boutiqueId, { transaction: t });
-    //   const caisseAdmin = boutique?.utilisateurId ? await getCaisseByType("CAISSE", boutique.utilisateurId, t) : null;
+      const caisseVendeur = await getCaisseByType(
+        "CAISSE",
+        versement.utilisateurId,
+        t
+      );
+      const boutique = await Boutique.findByPk(versement.boutiqueId, {
+        transaction: t,
+      });
+      //   const caisseAdmin = boutique?.utilisateurId ? await getCaisseByType("CAISSE", boutique.utilisateurId, t) : null;
 
       if (!caisseVendeur) throw new Error("Caisse vendeur non trouvée.");
-    //   if (!caisseAdmin) throw new Error("Caisse admin non trouvée.");
+      //   if (!caisseAdmin) throw new Error("Caisse admin non trouvée.");
 
       // 💰 Crédit vendeur / Débit admin
       caisseVendeur.solde_actuel += versement.montant;
-    //   caisseAdmin.solde_actuel -= versement.montant;
+      //   caisseAdmin.solde_actuel -= versement.montant;
 
       await caisseVendeur.save({ transaction: t });
-    //   await caisseAdmin.save({ transaction: t });
+      //   await caisseAdmin.save({ transaction: t });
 
       versement.status = "REJETÉ";
       await versement.save({ transaction: t });
@@ -193,14 +228,23 @@ const rejeterVersement = async (req, res) => {
       const io = req.app.get("io");
       io.emit("caisseMisAJour");
 
-      return res.status(200).json({ message: "Versement rejeté et montants restitués.", versement });
+      return res
+        .status(200)
+        .json({
+          message: "Versement rejeté et montants restitués.",
+          versement,
+        });
     }
 
-    res.status(400).json({ message: "Statut du versement invalide pour un rejet." });
+    res
+      .status(400)
+      .json({ message: "Statut du versement invalide pour un rejet." });
   } catch (error) {
     await t.rollback();
     console.error("Erreur lors du rejet du versement :", error);
-    res.status(500).json({ message: error.message || "Erreur interne du serveur." });
+    res
+      .status(500)
+      .json({ message: error.message || "Erreur interne du serveur." });
   }
 };
 
@@ -215,7 +259,9 @@ const recupererVersement = async (req, res) => {
     let whereClause = {};
 
     if (utilisateur.Role.nom === "ADMIN") {
-      const boutique = await Boutique.findOne({ where: { utilisateurId: utilisateur.id } });
+      const boutique = await Boutique.findOne({
+        where: { utilisateurId: utilisateur.id },
+      });
       if (boutique) {
         whereClause.boutiqueId = boutique.id;
       } else {
@@ -229,7 +275,13 @@ const recupererVersement = async (req, res) => {
 
     const versements = await Versement.findAll({
       where: whereClause,
-      include: [{ model: Utilisateur, attributes: ["id", "nom", "email"] }],
+      include: [
+        {
+          model: Utilisateur,
+          as: "vendeur", 
+          attributes: ["id", "nom", "email"],
+        },
+      ],
       order: [["createdAt", "DESC"]],
     });
 
