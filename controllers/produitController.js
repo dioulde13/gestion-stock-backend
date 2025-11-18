@@ -235,23 +235,42 @@ const produitsEnAlerteStock = async (req, res) => {
 
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const utilisateur = await Utilisateur.findByPk(decoded.id);
+
+    const utilisateur = await Utilisateur.findByPk(decoded.id, {
+      include: [{ model: Role }],
+    });
+
     if (!utilisateur)
       return res.status(404).json({ message: "Utilisateur non trouvé." });
 
     let produits = [];
 
-    if (utilisateur.role === "ADMIN") {
-      const boutiques = await Boutique.findAll({
+    if (utilisateur.Role.nom.toUpperCase() === "ADMIN") {
+      // Récupérer tous les vendeurs de la boutique de l'admin
+      const boutique = await Boutique.findOne({
         where: { utilisateurId: utilisateur.id },
+        include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
       });
-      const boutiqueIds = boutiques.map((b) => b.id);
+
+      if (!boutique)
+        return res
+          .status(404)
+          .json({ message: "Aucune boutique trouvée pour cet admin." });
+
+      const utilisateurIds = [utilisateur.id]; // inclure l'admin lui-même
+      if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
+        utilisateurIds.push(...boutique.Vendeurs.map((v) => v.id));
+      }
 
       produits = await Produit.findAll({
-        where: { boutiqueId: boutiqueIds },
-        include: [{ model: Categorie }, { model: Boutique }],
+        where: { utilisateurId: utilisateurIds },
+        include: [
+          { model: Categorie, attributes: ["id", "nom"] },
+          { model: Boutique, attributes: ["id", "nom"] },
+        ],
+        order: [["id", "DESC"]],
       });
-    } else {
+    } else if (utilisateur.Role.nom.toUpperCase() === "VENDEUR") {
       if (!utilisateur.boutiqueId)
         return res
           .status(403)
@@ -259,12 +278,19 @@ const produitsEnAlerteStock = async (req, res) => {
 
       produits = await Produit.findAll({
         where: { boutiqueId: utilisateur.boutiqueId },
-        include: [{ model: Categorie }, { model: Boutique }],
+        include: [
+          { model: Categorie, attributes: ["id", "nom"] },
+          { model: Boutique, attributes: ["id", "nom"] },
+        ],
+        order: [["id", "DESC"]],
       });
+    } else {
+      return res.status(403).json({ message: "Rôle non autorisé." });
     }
 
     // Filtrage selon stock minimum
     produits = produits.filter((p) => p.stock_actuel <= (p.stock_minimum || 0));
+
     res.status(200).json(produits);
   } catch (error) {
     console.error(
@@ -274,6 +300,7 @@ const produitsEnAlerteStock = async (req, res) => {
     res.status(500).json({ message: "Erreur interne du serveur." });
   }
 };
+
 
 // ===========================
 // MODIFIER UN PRODUIT
