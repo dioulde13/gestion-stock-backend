@@ -9,8 +9,6 @@ router.put('/modifier', utilisateurController.modifierUtilisateur);
 router.put('/updatePassword', utilisateurController.changerMotDePasse);
 router.post('/login', utilisateurController.connexionUtilisateur);
 router.delete('/supprimer/:id', utilisateurController.supprimerUtilisateur);
-router.post('/generate/otp', utilisateurController.otpGenererController);
-router.post('/verifier/otp', utilisateurController.verifierOtp);
 router.get('/profile', utilisateurController.getUtilisateurConnecte);
 
 module.exports = router;

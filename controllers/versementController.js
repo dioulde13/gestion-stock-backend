@@ -204,13 +204,6 @@ const rejeterVersement = async (req, res) => {
     if (versement.status === "VALIDÉ") {
       caisseVendeur.solde_actuel += versement.montant;
       await caisseVendeur.save({ transaction: t });
-
-      // Optionnel : débit admin si tu as une caisse admin
-      // const caisseAdmin = await getCaisseByType("ADMIN", adminId, t);
-      // if (caisseAdmin) {
-      //   caisseAdmin.solde_actuel -= versement.montant;
-      //   await caisseAdmin.save({ transaction: t });
-      // }
     }
 
     // Mettre à jour le statut en REJETÉ

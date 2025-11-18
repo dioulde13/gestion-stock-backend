@@ -19,6 +19,10 @@ const NotificationUser = require('./notificationUser');
 const Notification = require('./notification');
 const Boutique = require('./boutique');
 
+
+// =====================================
+// BOUTIQUE ↔ ENTITÉS MULTI-BOUTIQUE
+// =====================================
 Depense.belongsTo(Boutique, { foreignKey: 'boutiqueId' });
 Boutique.hasMany(Depense, { foreignKey: 'boutiqueId' });
 
@@ -35,39 +39,51 @@ MouvementStock.belongsTo(Boutique, { foreignKey: 'boutiqueId' });
 Boutique.hasMany(MouvementStock, { foreignKey: 'boutiqueId' });
 
 
-Client.belongsTo(Boutique, { foreignKey: 'boutiqueId' });
-Boutique.hasMany(Client, { foreignKey: 'boutiqueId' });
+// =====================================
+// ADMIN ↔ VENDEURS (Utilisateur)
+// =====================================
+Utilisateur.hasMany(Utilisateur, {
+  foreignKey: "adminId",
+  as: "Vendeurs"
+});
 
-// =======================
-// Relations Catégorie ↔ Utilisateur et Boutique
-// =======================
-
-// Une catégorie est créée par un utilisateur (souvent l'admin)
-Categorie.belongsTo(Utilisateur, { foreignKey: 'utilisateurId' });
-Utilisateur.hasMany(Categorie, { foreignKey: 'utilisateurId' });
-
-// Une boutique peut avoir plusieurs catégories
-Categorie.belongsTo(Boutique, { foreignKey: 'boutiqueId' });
-Boutique.hasMany(Categorie, { foreignKey: 'boutiqueId' });
+Utilisateur.belongsTo(Utilisateur, {
+  foreignKey: "adminId",
+  as: "Admin"
+});
 
 
-// =======================
-// Relations Utilisateur ↔ Boutique
-// =======================
+// =====================================
+// BOUTIQUE ↔ VENDEURS
+// =====================================
+Utilisateur.belongsTo(Boutique, {
+  foreignKey: "boutiqueId",
+  as: "Boutique"
+});
 
-// Un admin peut créer plusieurs boutiques
-Utilisateur.hasMany(Boutique, { as: "BoutiquesCreees", foreignKey: 'utilisateurId' });
-Boutique.belongsTo(Utilisateur, { as: "Admin", foreignKey: 'utilisateurId' });
-
-// Un vendeur appartient à une seule boutique
-Utilisateur.belongsTo(Boutique, { as: "Boutique", foreignKey: 'boutiqueId' });
-// Une boutique peut avoir plusieurs vendeurs
-Boutique.hasMany(Utilisateur, { as: "Vendeurs", foreignKey: 'boutiqueId' });
+Boutique.hasMany(Utilisateur, {
+  foreignKey: "boutiqueId",
+  as: "Vendeurs"
+});
 
 
-// =======================
-// Relations Notifications
-// =======================
+// =====================================
+// BOUTIQUE ↔ ADMIN (plusieurs boutiques)
+// =====================================
+Boutique.belongsTo(Utilisateur, {
+  foreignKey: "utilisateurId",
+  as: "Admin"
+});
+
+Utilisateur.hasMany(Boutique, {
+  foreignKey: "utilisateurId",
+  as: "Boutiques"
+});
+
+
+// =====================================
+// NOTIFICATIONS
+// =====================================
 NotificationUser.belongsTo(Notification, { foreignKey: 'notificationId' });
 Notification.hasMany(NotificationUser, { foreignKey: 'notificationId' });
 
@@ -78,33 +94,36 @@ Notification.belongsTo(Utilisateur, { foreignKey: 'utilisateurId' });
 Utilisateur.hasMany(Notification, { foreignKey: 'utilisateurId' });
 
 
-// =======================
-// Relations Utilisateur ↔ Caisse
-// =======================
+// =====================================
+// UTILISATEUR ↔ CAISSE
+// =====================================
 Caisse.belongsTo(Utilisateur, { foreignKey: 'utilisateurId' });
 Utilisateur.hasMany(Caisse, { foreignKey: 'utilisateurId' });
 
 
-// =======================
-// Relations Produits, Catégories, Boutique
-// =======================
+// =====================================
+// PRODUITS, CATEGORIES, BOUTIQUES
+// =====================================
 Categorie.hasMany(Produit, { foreignKey: 'categorieId' });
 Produit.belongsTo(Categorie, { foreignKey: 'categorieId' });
 
 Boutique.hasMany(Produit, { foreignKey: 'boutiqueId' });
 Produit.belongsTo(Boutique, { foreignKey: 'boutiqueId' });
 
+Produit.belongsTo(Utilisateur, { foreignKey: 'utilisateurId' });
+Utilisateur.hasMany(Produit, { foreignKey: 'utilisateurId' });
 
-// =======================
-// Relations Achats & Fournisseurs
-// =======================
+
+// =====================================
+// ACHATS & FOURNISSEURS
+// =====================================
 Achat.belongsTo(Fournisseur, { foreignKey: 'fournisseurId' });
 Fournisseur.hasMany(Achat, { foreignKey: 'fournisseurId' });
 
 
-// =======================
-// Relations LigneVente / LigneAchat
-// =======================
+// =====================================
+// LIGNE VENTE & LIGNE ACHAT
+// =====================================
 Produit.hasMany(LigneVente, { foreignKey: 'produitId' });
 LigneVente.belongsTo(Produit, { foreignKey: 'produitId' });
 
@@ -118,23 +137,23 @@ Achat.hasMany(LigneAchat, { foreignKey: 'achatId' });
 LigneAchat.belongsTo(Achat, { foreignKey: 'achatId' });
 
 
-// =======================
-// Relations Dépenses
-// =======================
+// =====================================
+// DEPENSES
+// =====================================
 Depense.belongsTo(Utilisateur, { foreignKey: 'utilisateurId' });
 Utilisateur.hasMany(Depense, { foreignKey: 'utilisateurId' });
 
 
-// =======================
-// Relations Rôles
-// =======================
+// =====================================
+// ROLE ↔ UTILISATEUR
+// =====================================
 Utilisateur.belongsTo(Role, { foreignKey: 'roleId' });
 Role.hasMany(Utilisateur, { foreignKey: 'roleId' });
 
 
-// =======================
-// Relations Client & Vente
-// =======================
+// =====================================
+// VENTES & CLIENTS
+// =====================================
 Client.belongsTo(Utilisateur, { foreignKey: 'utilisateurId' });
 Utilisateur.hasMany(Client, { foreignKey: 'utilisateurId' });
 
@@ -142,9 +161,9 @@ Vente.belongsTo(Client, { foreignKey: 'clientId' });
 Client.hasMany(Vente, { foreignKey: 'clientId' });
 
 
-// =======================
-// Relations Mouvement de stock
-// =======================
+// =====================================
+// MOUVEMENT STOCK
+// =====================================
 Produit.hasMany(MouvementStock, { foreignKey: 'produitId' });
 MouvementStock.belongsTo(Produit, { foreignKey: 'produitId' });
 
@@ -152,9 +171,9 @@ MouvementStock.belongsTo(TypeMvt, { foreignKey: 'typeMvtId' });
 TypeMvt.hasMany(MouvementStock, { foreignKey: 'typeMvtId' });
 
 
-// =======================
-// Relations Credit et PayementCredit
-// =======================
+// =====================================
+// CREDIT & PAYEMENT CREDIT
+// =====================================
 Credit.belongsTo(Utilisateur, { foreignKey: 'utilisateurId' });
 Utilisateur.hasMany(Credit, { foreignKey: 'utilisateurId' });
 
@@ -169,7 +188,7 @@ Credit.hasMany(PayementCredit, { foreignKey: 'creditId' });
 
 
 // =======================
-// Export des modèles
+// Export
 // =======================
 module.exports = {
   Categorie,

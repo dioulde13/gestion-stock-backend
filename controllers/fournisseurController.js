@@ -5,54 +5,49 @@ const Role = require("../models/role");
 const Boutique = require("../models/boutique");
 
 /**
- * 🔒 Fonction utilitaire pour décoder le token et récupérer l'utilisateur
+ * 🔒 Récupérer l'utilisateur connecté depuis le token
  */
 const getUserFromToken = async (req, res) => {
   const authHeader = req.headers["authorization"];
-  if (!authHeader) {
-    res.status(403).json({ message: "Accès refusé. Aucun token trouvé." });
-    return null;
-  }
+  if (!authHeader) return res.status(403).json({ message: "Accès refusé. Aucun token trouvé." });
 
   const token = authHeader.split(" ")[1];
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
     const utilisateur = await Utilisateur.findByPk(decoded.id, { include: Role });
-    if (!utilisateur) {
-      res.status(404).json({ message: "Utilisateur non trouvé." });
-      return null;
-    }
+    if (!utilisateur) return res.status(404).json({ message: "Utilisateur non trouvé." });
     return utilisateur;
   } catch (error) {
     console.error("Erreur de vérification du token :", error);
-    res.status(401).json({ message: "Token invalide ou expiré." });
-    return null;
+    return res.status(401).json({ message: "Token invalide ou expiré." });
   }
 };
 
 /**
- * Ajouter un fournisseur (ADMIN ou VENDEUR)
+ * ➕ Ajouter un fournisseur
  */
 const ajouterFournisseur = async (req, res) => {
   try {
     const utilisateur = await getUserFromToken(req, res);
     if (!utilisateur) return;
 
-    const { nom, telephone} = req.body;
+    const { nom, telephone } = req.body;
     if (!nom) return res.status(400).json({ message: "Le nom est obligatoire." });
 
-    // ADMIN et VENDEUR peuvent ajouter un fournisseur pour eux-mêmes
+    let boutiqueId = utilisateur.boutiqueId;
+    if (utilisateur.Role.nom === "ADMIN") {
+      const boutique = await Boutique.findOne({ where: { utilisateurId: utilisateur.id } });
+      boutiqueId = boutique?.id || null;
+    }
+
     const fournisseur = await Fournisseur.create({
       nom,
       telephone,
       utilisateurId: utilisateur.id,
-      boutiqueId: utilisateur.boutiqueId,
+      boutiqueId,
     });
 
-    res.status(201).json({
-      message: "Fournisseur ajouté avec succès.",
-      fournisseur,
-    });
+    res.status(201).json({ message: "Fournisseur ajouté avec succès.", fournisseur });
   } catch (error) {
     console.error("Erreur lors de l'ajout du fournisseur :", error);
     res.status(500).json({ message: "Erreur interne du serveur." });
@@ -60,7 +55,7 @@ const ajouterFournisseur = async (req, res) => {
 };
 
 /**
- * Récupérer les fournisseurs selon le rôle
+ * 📜 Récupérer les fournisseurs selon le rôle
  */
 const recupererFournisseurs = async (req, res) => {
   try {
@@ -69,30 +64,18 @@ const recupererFournisseurs = async (req, res) => {
 
     let whereClause = {};
 
-    // Si ADMIN : il peut voir ses fournisseurs + ceux de ses vendeurs
-    if (utilisateur.Role.nom === "ADMIN") {
-      // Récupérer les vendeurs de la boutique de l’admin
+    if (utilisateur.Role.nom === "VENDEUR") {
+      whereClause.utilisateurId = utilisateur.id;
+    } else if (utilisateur.Role.nom === "ADMIN") {
       const boutique = await Boutique.findOne({ where: { utilisateurId: utilisateur.id } });
       if (boutique) {
-        const vendeurs = await Utilisateur.findAll({
-          where: { boutiqueId: boutique.id },
-          attributes: ["id"],
-        });
-        const vendeursIds = vendeurs.map((v) => v.id);
+        const vendeurs = await Utilisateur.findAll({ where: { boutiqueId: boutique.id }, attributes: ["id"] });
+        const vendeursIds = vendeurs.map(v => v.id);
         whereClause.utilisateurId = [utilisateur.id, ...vendeursIds];
       } else {
         whereClause.utilisateurId = utilisateur.id;
       }
-    }
-    // Si VENDEUR : uniquement ses fournisseurs
-    else if (utilisateur.Role.nom === "VENDEUR") {
-      whereClause.utilisateurId = utilisateur.id;
-    }
-    // Si SUPERADMIN : tous les fournisseurs
-    else if (utilisateur.Role.nom === "SUPERADMIN") {
-      whereClause = {};
-    }
-    else {
+    } else {
       return res.status(403).json({ message: "Rôle non autorisé." });
     }
 
@@ -110,7 +93,7 @@ const recupererFournisseurs = async (req, res) => {
 };
 
 /**
- * Consulter un fournisseur (accès restreint)
+ * 🔍 Consulter un fournisseur
  */
 const consulterFournisseur = async (req, res) => {
   try {
@@ -118,21 +101,17 @@ const consulterFournisseur = async (req, res) => {
     if (!utilisateur) return;
 
     const { id } = req.params;
-    const fournisseur = await Fournisseur.findByPk(id, {
-      include: [{ model: Utilisateur, attributes: ["id", "nom", "email", "boutiqueId"], include: [Role] }],
-    });
+    const fournisseur = await Fournisseur.findByPk(id, { include: [{ model: Utilisateur, include: [Role] }] });
     if (!fournisseur) return res.status(404).json({ message: "Fournisseur non trouvé." });
 
-    // Vérification d'accès
     if (utilisateur.Role.nom === "VENDEUR" && fournisseur.utilisateurId !== utilisateur.id) {
       return res.status(403).json({ message: "Accès refusé à ce fournisseur." });
     }
 
     if (utilisateur.Role.nom === "ADMIN") {
-      // ADMIN : peut voir fournisseur d’un vendeur de sa boutique
       const boutique = await Boutique.findOne({ where: { utilisateurId: utilisateur.id } });
-      const vendeurAutorisé = fournisseur.Utilisateur?.boutiqueId === boutique?.id;
-      if (!vendeurAutorisé && fournisseur.utilisateurId !== utilisateur.id) {
+      const estVendeurBoutique = fournisseur.Utilisateur?.boutiqueId === boutique?.id;
+      if (!estVendeurBoutique && fournisseur.utilisateurId !== utilisateur.id) {
         return res.status(403).json({ message: "Fournisseur hors de votre boutique." });
       }
     }
@@ -145,7 +124,7 @@ const consulterFournisseur = async (req, res) => {
 };
 
 /**
- * Modifier un fournisseur (mêmes règles d’accès)
+ * ✏️ Modifier un fournisseur
  */
 const modifierFournisseur = async (req, res) => {
   try {
@@ -153,19 +132,17 @@ const modifierFournisseur = async (req, res) => {
     if (!utilisateur) return;
 
     const { id } = req.params;
-    const fournisseur = await Fournisseur.findByPk(id, {
-      include: [{ model: Utilisateur, include: [Role] }],
-    });
+    const fournisseur = await Fournisseur.findByPk(id, { include: [{ model: Utilisateur, include: [Role] }] });
     if (!fournisseur) return res.status(404).json({ message: "Fournisseur non trouvé." });
 
-    // Vérification des droits
     if (utilisateur.Role.nom === "VENDEUR" && fournisseur.utilisateurId !== utilisateur.id) {
       return res.status(403).json({ message: "Accès refusé à ce fournisseur." });
     }
+
     if (utilisateur.Role.nom === "ADMIN") {
       const boutique = await Boutique.findOne({ where: { utilisateurId: utilisateur.id } });
-      const vendeurAutorisé = fournisseur.Utilisateur?.boutiqueId === boutique?.id;
-      if (!vendeurAutorisé && fournisseur.utilisateurId !== utilisateur.id) {
+      const estVendeurBoutique = fournisseur.Utilisateur?.boutiqueId === boutique?.id;
+      if (!estVendeurBoutique && fournisseur.utilisateurId !== utilisateur.id) {
         return res.status(403).json({ message: "Fournisseur hors de votre boutique." });
       }
     }
@@ -180,7 +157,7 @@ const modifierFournisseur = async (req, res) => {
 };
 
 /**
- * Supprimer un fournisseur (mêmes règles d’accès)
+ * 🗑️ Supprimer un fournisseur
  */
 const supprimerFournisseur = async (req, res) => {
   try {
@@ -188,9 +165,7 @@ const supprimerFournisseur = async (req, res) => {
     if (!utilisateur) return;
 
     const { id } = req.params;
-    const fournisseur = await Fournisseur.findByPk(id, {
-      include: [{ model: Utilisateur, include: [Role] }],
-    });
+    const fournisseur = await Fournisseur.findByPk(id, { include: [{ model: Utilisateur, include: [Role] }] });
     if (!fournisseur) return res.status(404).json({ message: "Fournisseur non trouvé." });
 
     if (utilisateur.Role.nom === "VENDEUR" && fournisseur.utilisateurId !== utilisateur.id) {
@@ -199,8 +174,8 @@ const supprimerFournisseur = async (req, res) => {
 
     if (utilisateur.Role.nom === "ADMIN") {
       const boutique = await Boutique.findOne({ where: { utilisateurId: utilisateur.id } });
-      const vendeurAutorisé = fournisseur.Utilisateur?.boutiqueId === boutique?.id;
-      if (!vendeurAutorisé && fournisseur.utilisateurId !== utilisateur.id) {
+      const estVendeurBoutique = fournisseur.Utilisateur?.boutiqueId === boutique?.id;
+      if (!estVendeurBoutique && fournisseur.utilisateurId !== utilisateur.id) {
         return res.status(403).json({ message: "Fournisseur hors de votre boutique." });
       }
     }
