@@ -145,7 +145,7 @@ app.get("/check-db-connection", async (req, res) => {
 
 // Sequelize sync
 sequelize
-  .sync({ force: true }) // Remettre  alter: true si besoin
+  .sync({ alter: true }) // Remettre  alter: true si besoin
   .then(() => console.log("Tables créées avec succès"))
   .catch((error) => console.error("Erreur création tables :", error));
 
