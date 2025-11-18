@@ -49,47 +49,57 @@ const ajouterCategorie = async (req, res) => {
 // Récupérer les catégories
 const recupererCategories = async (req, res) => {
   try {
+    // 🔐 Vérification du token
     const authHeader = req.headers['authorization'];
     if (!authHeader) return res.status(403).json({ message: 'Aucun token fourni.' });
-
     const token = authHeader.split(' ')[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
 
+    // 🔹 Récupération de l'utilisateur avec son rôle et sa boutique
     const utilisateurConnecte = await Utilisateur.findByPk(decoded.id, {
       include: [{ model: Role, attributes: ['nom'] }, { model: Boutique, as: 'Boutique' }],
     });
     if (!utilisateurConnecte) return res.status(404).json({ message: 'Utilisateur non trouvé.' });
 
-    let categories;
+    let idsUtilisateurs = [];
 
     if (utilisateurConnecte.Role.nom.toUpperCase() === 'ADMIN') {
-      // Admin : voir ses catégories + celles de ses vendeurs
+      // Admin : récupérer toutes les boutiques qu'il a créées
       const boutiques = await Boutique.findAll({
         where: { utilisateurId: utilisateurConnecte.id },
-        include: [{ model: Utilisateur, as: 'Vendeurs' }],
+        include: [{ model: Utilisateur, as: 'Vendeurs', attributes: ['id'] }],
       });
 
-      const idsUtilisateurs = [utilisateurConnecte.id];
-      boutiques.forEach(b => {
-        if (b.Vendeurs?.length) {
-          b.Vendeurs.forEach(v => idsUtilisateurs.push(v.id));
+      for (const boutique of boutiques) {
+        // Ajouter tous les utilisateurs (admin + vendeurs) de cette boutique
+        idsUtilisateurs.push(boutique.utilisateurId); // admin
+        if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
+          boutique.Vendeurs.forEach(v => idsUtilisateurs.push(v.id));
         }
-      });
-
-      categories = await Categorie.findAll({
-        where: { utilisateurId: idsUtilisateurs },
-        include: [{ model: Utilisateur, attributes: ['id', 'nom', 'email'] }],
-      });
+      }
 
     } else if (utilisateurConnecte.Role.nom.toUpperCase() === 'VENDEUR') {
-      // Vendeur : voir seulement ses propres catégories
-      categories = await Categorie.findAll({
-        where: { utilisateurId: utilisateurConnecte.id },
-        include: [{ model: Utilisateur, attributes: ['id', 'nom', 'email'] }],
+      // Vendeur : récupérer tous les utilisateurs de sa boutique
+      const boutique = await Boutique.findByPk(utilisateurConnecte.boutiqueId, {
+        include: [{ model: Utilisateur, as: 'Vendeurs', attributes: ['id'] }],
       });
+
+      if (boutique) {
+        idsUtilisateurs.push(boutique.utilisateurId); // admin
+        if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
+          boutique.Vendeurs.forEach(v => idsUtilisateurs.push(v.id));
+        }
+      }
+
     } else {
       return res.status(403).json({ message: 'Rôle non autorisé.' });
     }
+
+    // 🔹 Récupération des catégories de tous les utilisateurs sélectionnés
+    const categories = await Categorie.findAll({
+      where: { utilisateurId: idsUtilisateurs },
+      include: [{ model: Utilisateur, attributes: ['id', 'nom', 'email'] }],
+    });
 
     res.status(200).json(categories);
   } catch (error) {
