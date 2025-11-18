@@ -11,7 +11,6 @@ const Utilisateur = sequelize.define("Utilisateur", {
 
   // 🔥 Champ qui manquait !
   adminId: { type: DataTypes.INTEGER, allowNull: true },
-
   otp: { type: DataTypes.INTEGER, allowNull: true },
 });
 
