@@ -5,7 +5,7 @@ const { Vente, LigneVente } = require("../models/relation");
 const Utilisateur = require("../models/utilisateur");
 const Client = require("../models/client");
 const sequelize = require("../models/sequelize");
-const Notification = require("../models/notification");
+// const Notification = require("../models/notification");
 const jwt = require("jsonwebtoken");
 const Role = require("../models/role");
 const { getCaisseByType } = require("../utils/caisseUtils");
@@ -23,7 +23,9 @@ const getUserFromToken = async (req, res) => {
   try {
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const utilisateur = await Utilisateur.findByPk(decoded.id, { include: Role });
+    const utilisateur = await Utilisateur.findByPk(decoded.id, {
+      include: Role,
+    });
     if (!utilisateur) {
       res.status(404).json({ message: "Utilisateur non trouvé." });
       return null;
@@ -45,7 +47,13 @@ const creerVente = async (req, res) => {
     const utilisateur = await getUserFromToken(req, res);
     if (!utilisateur) return;
 
-    const { lignes, type = "ACHAT", clientId, clientNom, clientTelephone } = req.body;
+    const {
+      lignes,
+      type = "ACHAT",
+      clientId,
+      clientNom,
+      clientTelephone,
+    } = req.body;
     if (!["ACHAT", "CREDIT"].includes(type))
       throw new Error('Type de vente invalide. Doit être "ACHAT" ou "CREDIT".');
 
@@ -61,12 +69,15 @@ const creerVente = async (req, res) => {
       } else {
         if (!clientNom || !clientTelephone)
           throw new Error("Nom et téléphone requis pour un crédit.");
-        clientAssocie = await Client.create({
-          nom: clientNom,
-          telephone: clientTelephone,
-          utilisateurId: utilisateur.id,
-          boutiqueId: utilisateur.boutiqueId,
-        }, { transaction: t });
+        clientAssocie = await Client.create(
+          {
+            nom: clientNom,
+            telephone: clientTelephone,
+            utilisateurId: utilisateur.id,
+            boutiqueId: utilisateur.boutiqueId,
+          },
+          { transaction: t }
+        );
       }
     }
 
@@ -75,12 +86,20 @@ const creerVente = async (req, res) => {
     let totalAchat = 0;
     for (const ligne of lignes) {
       if (!ligne.produitId || !ligne.quantite || !ligne.prix_vente)
-        throw new Error("Chaque ligne doit contenir produitId, quantite et prix_vente.");
+        throw new Error(
+          "Chaque ligne doit contenir produitId, quantite et prix_vente."
+        );
 
-      const produit = await Produit.findByPk(ligne.produitId, { transaction: t, lock: t.LOCK.UPDATE });
-      if (!produit) throw new Error(`Produit ID ${ligne.produitId} introuvable.`);
+      const produit = await Produit.findByPk(ligne.produitId, {
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+      if (!produit)
+        throw new Error(`Produit ID ${ligne.produitId} introuvable.`);
       if (produit.boutiqueId !== utilisateur.boutiqueId)
-        throw new Error("Impossible de vendre un produit d'une autre boutique.");
+        throw new Error(
+          "Impossible de vendre un produit d'une autre boutique."
+        );
       if (produit.stock_actuel < ligne.quantite)
         throw new Error(`Stock insuffisant pour ${produit.nom}.`);
 
@@ -91,46 +110,74 @@ const creerVente = async (req, res) => {
     const benefice = totalVente - totalAchat;
 
     // Création de la vente
-    const vente = await Vente.create({
-      utilisateurId: utilisateur.id,
-      boutiqueId: utilisateur.boutiqueId,
-      clientId: clientAssocie ? clientAssocie.id : null,
-      total: totalVente,
-      type,
-      status: "VALIDER",
-    }, { transaction: t });
+    const vente = await Vente.create(
+      {
+        utilisateurId: utilisateur.id,
+        boutiqueId: utilisateur.boutiqueId,
+        clientId: clientAssocie ? clientAssocie.id : null,
+        total: totalVente,
+        type,
+        status: "VALIDER",
+      },
+      { transaction: t }
+    );
 
     // Création des lignes de vente et mise à jour stock
     for (const ligne of lignes) {
-      const produit = await Produit.findByPk(ligne.produitId, { transaction: t, lock: t.LOCK.UPDATE });
-      await LigneVente.create({
-        venteId: vente.id,
-        produitId: ligne.produitId,
-        quantite: ligne.quantite,
-        prix_vente: ligne.prix_vente,
-        prix_achat: produit.prix_achat,
-      }, { transaction: t });
+      const produit = await Produit.findByPk(ligne.produitId, {
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
+      await LigneVente.create(
+        {
+          venteId: vente.id,
+          produitId: ligne.produitId,
+          quantite: ligne.quantite,
+          prix_vente: ligne.prix_vente,
+          prix_achat: produit.prix_achat,
+        },
+        { transaction: t }
+      );
       produit.stock_actuel -= ligne.quantite;
       await produit.save({ transaction: t });
     }
 
     // 💰 Mise à jour des caisses
-    const boutique = await Boutique.findByPk(utilisateur.boutiqueId, { transaction: t });
+    const boutique = await Boutique.findByPk(utilisateur.boutiqueId, {
+      transaction: t,
+    });
     if (boutique) {
-      const vendeurs = await Utilisateur.findAll({ where: { boutiqueId: boutique.id }, transaction: t });
+      const vendeurs = await Utilisateur.findAll({
+        where: { boutiqueId: boutique.id },
+        transaction: t,
+      });
       for (const vendeur of vendeurs) {
-        const caisseVSP = await getCaisseByType("VALEUR_STOCK_PUR", vendeur.id, t);
+        const caisseVSP = await getCaisseByType(
+          "VALEUR_STOCK_PUR",
+          vendeur.id,
+          t
+        );
         if (caisseVSP) {
           caisseVSP.solde_actuel -= totalAchat;
           await caisseVSP.save({ transaction: t });
         }
       }
       if (boutique.utilisateurId) {
-        const admin = await Utilisateur.findByPk(boutique.utilisateurId, { transaction: t });
-        if (admin && !vendeurs.some(v => v.id === admin.id)) {
-          const caisseAdminVSP = await getCaisseByType("VALEUR_STOCK_PUR", admin.id, t);
+        const admin = await Utilisateur.findByPk(boutique.utilisateurId, {
+          transaction: t,
+        });
+        if (admin && !vendeurs.some((v) => v.id === admin.id)) {
+          const caisseAdminVSP = await getCaisseByType(
+            "VALEUR_STOCK_PUR",
+            admin.id,
+            t
+          );
           if (type === "ACHAT") {
-            const caisseAdminPrincipal = await getCaisseByType("CAISSE", admin.id, t);
+            const caisseAdminPrincipal = await getCaisseByType(
+              "CAISSE",
+              admin.id,
+              t
+            );
             if (caisseAdminVSP && caisseAdminPrincipal) {
               caisseAdminVSP.solde_actuel -= totalAchat;
               caisseAdminPrincipal.solde_actuel += totalVente;
@@ -138,7 +185,11 @@ const creerVente = async (req, res) => {
               await caisseAdminPrincipal.save({ transaction: t });
             }
           } else if (type === "CREDIT") {
-            const caisseCredit = await getCaisseByType("CREDIT_VENTE", admin.id, t);
+            const caisseCredit = await getCaisseByType(
+              "CREDIT_VENTE",
+              admin.id,
+              t
+            );
             if (caisseAdminVSP && caisseCredit) {
               caisseAdminVSP.solde_actuel -= totalAchat;
               caisseCredit.solde_actuel += totalVente;
@@ -152,20 +203,50 @@ const creerVente = async (req, res) => {
 
     // Mise à jour des caisses utilisateur
     if (type === "ACHAT") {
-      const caissePrincipale = await getCaisseByType("PRINCIPALE", utilisateur.id, t);
-      const caisseGlobale = await getCaisseByType("CAISSE", utilisateur.id, t);
-      const beneficeRealise = await getCaisseByType("BENEFICE", utilisateur.id, t);
+      const caissePrincipale = await getCaisseByType(
+        "PRINCIPALE",
+        utilisateur.id,
+        t
+      );
+      // const caisseGlobale = await getCaisseByType("CAISSE", utilisateur.id, t);
+      const beneficeRealise = await getCaisseByType(
+        "BENEFICE",
+        utilisateur.id,
+        t
+      );
 
       caissePrincipale.solde_actuel += totalVente;
-      caisseGlobale.solde_actuel += totalVente;
+      // caisseGlobale.solde_actuel += totalVente;
       beneficeRealise.solde_actuel += benefice;
 
+      if (boutique) {
+        const vendeurs = await Utilisateur.findAll({
+          where: { boutiqueId: boutique.id },
+          transaction: t,
+        });
+        for (const vendeur of vendeurs) {
+          const caisseGlobale = await getCaisseByType("CAISSE", vendeur.id, t);
+          if (caisseGlobale) {
+            caisseGlobale.solde_actuel += totalVente;
+            await caisseGlobale.save({ transaction: t });
+          }
+        }
+      }
+
       await caissePrincipale.save({ transaction: t });
-      await caisseGlobale.save({ transaction: t });
+      // await caisseGlobale.save({ transaction: t });
       await beneficeRealise.save({ transaction: t });
     } else if (type === "CREDIT") {
-      const caisseCredit = await getCaisseByType("CREDIT_VENTE", utilisateur.id, t);
-      const beneficeCredit = await getCaisseByType("BENEFICE_CREDIT", utilisateur.id, t);
+      const caisseCredit = await getCaisseByType(
+        "CREDIT_VENTE",
+        utilisateur.id,
+        t
+      );
+      const beneficeCredit = await getCaisseByType(
+        "BENEFICE_CREDIT",
+        utilisateur.id,
+        t
+      );
       caisseCredit.solde_actuel += totalVente;
       beneficeCredit.solde_actuel += benefice;
       await caisseCredit.save({ transaction: t });
@@ -180,25 +261,29 @@ const creerVente = async (req, res) => {
         transaction: t,
       });
       if (dernierCredit && dernierCredit.reference) {
-        const numero = parseInt(dernierCredit.reference.replace(/\D/g, "")) || 0;
+        const numero =
+          parseInt(dernierCredit.reference.replace(/\D/g, "")) || 0;
         reference = `REF${(numero + 1).toString().padStart(4, "0")}`;
       }
 
-      await Credit.create({
-        utilisateurId: utilisateur.id,
-        reference,
-        description: "Vente à crédit",
-        nom: clientAssocie.nom,
-        clientId: clientAssocie.id,
-        montant: totalVente,
-        montantPaye: 0,
-        montantRestant: 0,
-        beneficeCredit: benefice,
-        type: "SORTIE",
-        typeCredit: "VENTE",
-        status: "VALIDER",
-        boutiqueId: utilisateur.boutiqueId,
-      }, { transaction: t });
+      await Credit.create(
+        {
+          utilisateurId: utilisateur.id,
+          reference,
+          description: "Vente à crédit",
+          nom: clientAssocie.nom,
+          clientId: clientAssocie.id,
+          montant: totalVente,
+          montantPaye: 0,
+          montantRestant: 0,
+          beneficeCredit: benefice,
+          type: "SORTIE",
+          typeCredit: "VENTE",
+          status: "VALIDER",
+          boutiqueId: utilisateur.boutiqueId,
+        },
+        { transaction: t }
+      );
     }
 
     await t.commit();
@@ -207,12 +292,19 @@ const creerVente = async (req, res) => {
     const io = req.app.get("io");
     if (io) io.emit("caisseMisAJour", { utilisateurId: utilisateur.id });
 
-    return res.status(201).json({ success: true, message: "Vente créée avec succès.", benefice, client: clientAssocie || null });
-
+    return res.status(201).json({
+      success: true,
+      message: "Vente créée avec succès.",
+      benefice,
+      client: clientAssocie || null,
+    });
   } catch (error) {
     if (!t.finished) await t.rollback();
     console.error("Erreur lors de la vente:", error);
-    return res.status(400).json({ success: false, message: error.message || "Erreur interne du serveur." });
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Erreur interne du serveur.",
+    });
   }
 };
 
@@ -226,8 +318,10 @@ const recupererVentes = async (req, res) => {
 
     let whereClause = {};
     if (utilisateur.Role && utilisateur.Role.nom.toUpperCase() === "ADMIN") {
-      const boutiques = await Boutique.findAll({ where: { utilisateurId: utilisateur.id } });
-      whereClause["$Utilisateur.boutiqueId$"] = boutiques.map(b => b.id);
+      const boutiques = await Boutique.findAll({
+        where: { utilisateurId: utilisateur.id },
+      });
+      whereClause["$Utilisateur.boutiqueId$"] = boutiques.map((b) => b.id);
     } else {
       whereClause.utilisateurId = utilisateur.id;
     }
@@ -237,9 +331,24 @@ const recupererVentes = async (req, res) => {
       include: [
         {
           model: LigneVente,
-          include: [{ model: Produit, attributes: ["id", "nom", "prix_achat", "prix_vente", "boutiqueId"] }]
+          include: [
+            {
+              model: Produit,
+              attributes: [
+                "id",
+                "nom",
+                "prix_achat",
+                "prix_vente",
+                "boutiqueId",
+              ],
+            },
+          ],
         },
-        { model: Utilisateur, attributes: ["id", "nom"], include: [{ model: Boutique, as: "Boutique" }] },
+        {
+          model: Utilisateur,
+          attributes: ["id", "nom"],
+          include: [{ model: Boutique, as: "Boutique" }],
+        },
       ],
       order: [["date", "DESC"]],
     });
@@ -258,7 +367,12 @@ const consulterVente = async (req, res) => {
   try {
     const { id } = req.params;
     const vente = await Vente.findByPk(id, {
-      include: [{ model: LigneVente, include: [{ model: Produit, attributes: ["id", "nom"] }] }],
+      include: [
+        {
+          model: LigneVente,
+          include: [{ model: Produit, attributes: ["id", "nom"] }],
+        },
+      ],
     });
     if (!vente) return res.status(404).json({ message: "Vente non trouvée." });
     return res.status(200).json(vente);
@@ -276,11 +390,20 @@ const supprimerVente = async (req, res) => {
   try {
     const { id } = req.params;
     const vente = await Vente.findByPk(id, { transaction: t });
-    if (!vente) { await t.rollback(); return res.status(404).json({ message: "Vente non trouvée." }); }
+    if (!vente) {
+      await t.rollback();
+      return res.status(404).json({ message: "Vente non trouvée." });
+    }
 
-    const lignes = await LigneVente.findAll({ where: { venteId: id }, transaction: t });
+    const lignes = await LigneVente.findAll({
+      where: { venteId: id },
+      transaction: t,
+    });
     for (const ligne of lignes) {
-      const produit = await Produit.findByPk(ligne.produitId, { transaction: t, lock: t.LOCK.UPDATE });
+      const produit = await Produit.findByPk(ligne.produitId, {
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
       if (produit) {
         produit.stock_actuel += ligne.quantite;
         await produit.save({ transaction: t });
@@ -305,10 +428,18 @@ const supprimerVente = async (req, res) => {
 const produitsPlusVendus = async (req, res) => {
   try {
     const result = await LigneVente.findAll({
-      attributes: ["produitId", [Sequelize.fn("SUM", Sequelize.col("quantite")), "totalVendu"]],
+      attributes: [
+        "produitId",
+        [Sequelize.fn("SUM", Sequelize.col("quantite")), "totalVendu"],
+      ],
       group: ["produitId"],
       order: [[Sequelize.literal("totalVendu"), "DESC"]],
-      include: [{ model: Produit, attributes: ["id", "nom", "prix_vente", "stock_actuel"] }],
+      include: [
+        {
+          model: Produit,
+          attributes: ["id", "nom", "prix_vente", "stock_actuel"],
+        },
+      ],
       limit: 10,
     });
     return res.status(200).json(result);
@@ -328,7 +459,11 @@ const annulerVente = async (req, res) => {
     if (!utilisateur) return;
 
     const { id } = req.params;
-    const vente = await Vente.findByPk(id, { include: [LigneVente, Client], transaction: t, lock: t.LOCK.UPDATE });
+    const vente = await Vente.findByPk(id, {
+      include: [LigneVente, Client],
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
     if (!vente) throw new Error("Vente introuvable.");
     if (vente.status === "ANNULER") throw new Error("Vente déjà annulée.");
 
@@ -337,7 +472,10 @@ const annulerVente = async (req, res) => {
     let benefice = 0;
 
     for (const ligne of vente.LigneVentes) {
-      const produit = await Produit.findByPk(ligne.produitId, { transaction: t, lock: t.LOCK.UPDATE });
+      const produit = await Produit.findByPk(ligne.produitId, {
+        transaction: t,
+        lock: t.LOCK.UPDATE,
+      });
       if (produit) {
         produit.stock_actuel += ligne.quantite;
         await produit.save({ transaction: t });
@@ -348,9 +486,17 @@ const annulerVente = async (req, res) => {
 
     // Mise à jour des caisses utilisateur
     if (type === "ACHAT") {
-      const caissePrincipale = await getCaisseByType("PRINCIPALE", utilisateur.id, t);
+      const caissePrincipale = await getCaisseByType(
+        "PRINCIPALE",
+        utilisateur.id,
+        t
+      );
       const caisseGlobale = await getCaisseByType("CAISSE", utilisateur.id, t);
-      const beneficeRealise = await getCaisseByType("BENEFICE", utilisateur.id, t);
+      const beneficeRealise = await getCaisseByType(
+        "BENEFICE",
+        utilisateur.id,
+        t
+      );
       caissePrincipale.solde_actuel -= total;
       caisseGlobale.solde_actuel -= total;
       beneficeRealise.solde_actuel -= benefice;
@@ -358,15 +504,34 @@ const annulerVente = async (req, res) => {
       await caisseGlobale.save({ transaction: t });
       await beneficeRealise.save({ transaction: t });
     } else if (type === "CREDIT") {
-      const caisseCredit = await getCaisseByType("CREDIT_VENTE", utilisateur.id, t);
-      const beneficeCredit = await getCaisseByType("BENEFICE_CREDIT", utilisateur.id, t);
+      const caisseCredit = await getCaisseByType(
+        "CREDIT_VENTE",
+        utilisateur.id,
+        t
+      );
+      const beneficeCredit = await getCaisseByType(
+        "BENEFICE_CREDIT",
+        utilisateur.id,
+        t
+      );
       caisseCredit.solde_actuel -= total;
       beneficeCredit.solde_actuel -= benefice;
       await caisseCredit.save({ transaction: t });
       await beneficeCredit.save({ transaction: t });
 
-      const credit = await Credit.findOne({ where: { clientId, typeCredit: "VENTE", montant: total, status: "VALIDER" }, transaction: t });
-      if (credit) { credit.status = "ANNULER"; await credit.save({ transaction: t }); }
+      const credit = await Credit.findOne({
+        where: {
+          clientId,
+          typeCredit: "VENTE",
+          montant: total,
+          status: "VALIDER",
+        },
+        transaction: t,
+      });
+      if (credit) {
+        credit.status = "ANNULER";
+        await credit.save({ transaction: t });
+      }
     }
 
     vente.status = "ANNULER";
@@ -377,11 +542,16 @@ const annulerVente = async (req, res) => {
     const io = req.app.get("io");
     if (io) io.emit("caisseMisAJour");
 
-    return res.status(200).json({ success: true, message: "Vente annulée avec succès." });
+    return res
+      .status(200)
+      .json({ success: true, message: "Vente annulée avec succès." });
   } catch (error) {
     if (!t.finished) await t.rollback();
     console.error("Erreur annulation vente:", error);
-    return res.status(400).json({ success: false, message: error.message || "Erreur interne du serveur." });
+    return res.status(400).json({
+      success: false,
+      message: error.message || "Erreur interne du serveur.",
+    });
   }
 };
 

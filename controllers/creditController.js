@@ -257,23 +257,61 @@ const ajouterCredit = async (req, res) => {
         caisseCreditEspeceAdminBoutique.solde_actuel += montant;
         await caisseCreditEspeceAdminBoutique.save({ transaction: t });
 
-        caisseCreditEspeceUtilisateur.solde_actuel += montant;
-        await caisseCreditEspeceUtilisateur.save({ transaction: t });
-
-        caisseUtilisateur.solde_actuel -= montant;
-        await caisseUtilisateur.save({ transaction: t });
+        const vendeurs = await Utilisateur.findAll({
+          where: { boutiqueId: boutique.id },
+          transaction: t,
+        });
+        for (const vendeur of vendeurs) {
+          const caisseUtilisateur = await getCaisseByType(
+            "CAISSE",
+            vendeur.id,
+            t
+          );
+          if (caisseUtilisateur) {
+            caisseUtilisateur.solde_actuel -= montant;
+            await caisseUtilisateur.save({ transaction: t });
+          }
+          const caisseCreditEspeceUtilisateur = await getCaisseByType(
+            "CREDIT_ESPECE",
+            vendeur.id,
+            t
+          );
+          if (caisseCreditEspeceUtilisateur) {
+            caisseCreditEspeceUtilisateur.solde_actuel += montant;
+            await caisseCreditEspeceUtilisateur.save({ transaction: t });
+          }
+        }
 
         caisseAdminBoutique.solde_actuel -= montant;
         await caisseAdminBoutique.save({ transaction: t });
       } else if (type === "ENTRE") {
-        caisseCreditEspeceEntreUtilisateur.solde_actuel += montant;
-        await caisseCreditEspeceEntreUtilisateur.save({ transaction: t });
+        const vendeurs = await Utilisateur.findAll({
+          where: { boutiqueId: boutique.id },
+          transaction: t,
+        });
+        for (const vendeur of vendeurs) {
+          const caisseUtilisateur = await getCaisseByType(
+            "CAISSE",
+            vendeur.id,
+            t
+          );
+          if (caisseUtilisateur) {
+            caisseUtilisateur.solde_actuel += montant;
+            await caisseUtilisateur.save({ transaction: t });
+          }
+          const caisseCreditEspeceEntreUtilisateur = await getCaisseByType(
+            "CREDIT_ESPECE_ENTRE",
+            vendeur.id,
+            t
+          );
+          if (caisseCreditEspeceEntreUtilisateur) {
+            caisseCreditEspeceEntreUtilisateur.solde_actuel += montant;
+            await caisseCreditEspeceEntreUtilisateur.save({ transaction: t });
+          }
+        }
 
         caisseCreditEspeceEntreAdminBoutique.solde_actuel += montant;
         await caisseCreditEspeceEntreAdminBoutique.save({ transaction: t });
-
-        caisseUtilisateur.solde_actuel += montant;
-        await caisseUtilisateur.save({ transaction: t });
 
         caisseAdminBoutique.solde_actuel += montant;
         await caisseAdminBoutique.save({ transaction: t });
@@ -302,32 +340,48 @@ const recupererCredits = async (req, res) => {
   if (!utilisateur) return;
 
   try {
-    let whereClause = {};
+     // 🔹 Récupération de l'utilisateur avec son rôle et sa boutique
+    const utilisateurConnecte = await Utilisateur.findByPk(utilisateur.id, {
+      include: [{ model: Role, attributes: ['nom'] }, { model: Boutique, as: 'Boutique' }],
+    });
+    if (!utilisateurConnecte) return res.status(404).json({ message: 'Utilisateur non trouvé.' });
 
-    if (utilisateur.Role.nom === "SUPERADMIN") {
-      whereClause = {};
-    } else if (utilisateur.Role.nom === "ADMIN") {
-      const boutique = await Boutique.findOne({
-        where: { utilisateurId: utilisateur.id },
+    let idsUtilisateurs = [];
+
+    if (utilisateurConnecte.Role.nom.toUpperCase() === 'ADMIN') {
+      // Admin : récupérer toutes les boutiques qu'il a créées
+      const boutiques = await Boutique.findAll({
+        where: { utilisateurId: utilisateurConnecte.id },
+        include: [{ model: Utilisateur, as: 'Vendeurs', attributes: ['id'] }],
       });
-      if (boutique) {
-        const vendeurs = await Utilisateur.findAll({
-          where: { boutiqueId: boutique.id },
-          attributes: ["id"],
-        });
-        const vendeursIds = vendeurs.map((v) => v.id);
-        whereClause.utilisateurId = [utilisateur.id, ...vendeursIds];
-      } else {
-        whereClause.utilisateurId = utilisateur.id;
+
+      for (const boutique of boutiques) {
+        // Ajouter tous les utilisateurs (admin + vendeurs) de cette boutique
+        idsUtilisateurs.push(boutique.utilisateurId); // admin
+        if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
+          boutique.Vendeurs.forEach(v => idsUtilisateurs.push(v.id));
+        }
       }
-    } else if (utilisateur.Role.nom === "VENDEUR") {
-      whereClause.utilisateurId = utilisateur.id;
+
+    } else if (utilisateurConnecte.Role.nom.toUpperCase() === 'VENDEUR') {
+      // Vendeur : récupérer tous les utilisateurs de sa boutique
+      const boutique = await Boutique.findByPk(utilisateurConnecte.boutiqueId, {
+        include: [{ model: Utilisateur, as: 'Vendeurs', attributes: ['id'] }],
+      });
+
+      if (boutique) {
+        idsUtilisateurs.push(boutique.utilisateurId); // admin
+        if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
+          boutique.Vendeurs.forEach(v => idsUtilisateurs.push(v.id));
+        }
+      }
+
     } else {
-      return res.status(403).json({ message: "Rôle non autorisé." });
+      return res.status(403).json({ message: 'Rôle non autorisé.' });
     }
 
     const credits = await Credit.findAll({
-      where: whereClause,
+      where: { utilisateurId: idsUtilisateurs },
       include: [
         { model: Utilisateur, attributes: ["id", "nom", "email"] },
         { model: Client, attributes: ["id", "nom", "telephone"] },

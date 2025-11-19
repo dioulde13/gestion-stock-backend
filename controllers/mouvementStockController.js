@@ -149,7 +149,7 @@ const ajouterMouvementStock = async (req, res) => {
       const montant = quantite * prixAchat;
 
       // Mise à jour du stock
-      if (typeMvt.type === "ENTREE") produit.stock_actuel += quantite;
+      if (typeMvt.type === "ENTRE") produit.stock_actuel += quantite;
       else if (typeMvt.type === "SORTIE") {
         if (produit.stock_actuel < quantite)
           throw new Error("Stock insuffisant pour cette sortie.");
@@ -172,7 +172,7 @@ const ajouterMouvementStock = async (req, res) => {
         for (const u of utilisateursBoutique) {
           const caisseVSP = await getCaisseByType("VALEUR_STOCK_PUR", u.id, t);
           if (caisseVSP) {
-            caisseVSP.solde_actuel += typeMvt.type === "ENTREE" ? montant : -montant;
+            caisseVSP.solde_actuel += typeMvt.type === "ENTRE" ? montant : -montant;
             await caisseVSP.save({ transaction: t });
           }
         }

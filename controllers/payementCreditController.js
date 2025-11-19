@@ -2,6 +2,7 @@ const jwt = require("jsonwebtoken");
 const PayementCredit = require("../models/payementCredit");
 const Credit = require("../models/credit");
 const Utilisateur = require("../models/utilisateur");
+const Client = require("../models/client");
 const Boutique = require("../models/boutique");
 const Role = require("../models/role");
 // const Caisse = require("../models/caisse");
@@ -307,27 +308,68 @@ const ajouterPayementCredit = async (req, res) => {
       if (credit.typeCredit === "ESPECE") {
         // 💵 Cas d'un crédit en espèces
         caisseCreditEspeceAdminBoutique.solde_actuel -= montant;
-        caisseCreditEspeceUtilisateur.solde_actuel -= montant;
-        caisseVendeur.solde_actuel += montant;
+        // caisseCreditEspeceUtilisateur.solde_actuel -= montant;
+        // caisseVendeur.solde_actuel += montant;
+
+        const vendeurs = await Utilisateur.findAll({
+          where: { boutiqueId: boutique.id },
+          transaction: t,
+        });
+        for (const vendeur of vendeurs) {
+          const caisseVendeur = await getCaisseByType("CAISSE", vendeur.id, t);
+          if (caisseVendeur) {
+            caisseVendeur.solde_actuel += montant;
+            await caisseVendeur.save({ transaction: t });
+          }
+          const caisseCreditEspeceUtilisateur = await getCaisseByType(
+            "CREDIT_ESPECE",
+            vendeur.id,
+            t
+          );
+          if (caisseCreditEspeceUtilisateur) {
+            caisseCreditEspeceUtilisateur.solde_actuel -= montant;
+            await caisseCreditEspeceUtilisateur.save({ transaction: t });
+          }
+        }
         caisseAdminBoutique.solde_actuel += montant;
 
         await Promise.all([
           caisseCreditEspeceAdminBoutique.save({ transaction: t }),
-          caisseCreditEspeceUtilisateur.save({ transaction: t }),
-          caisseVendeur.save({ transaction: t }),
+          // caisseCreditEspeceUtilisateur.save({ transaction: t }),
+          // caisseVendeur.save({ transaction: t }),
           caisseAdminBoutique.save({ transaction: t }),
         ]);
       } else if (credit.typeCredit === "VENTE") {
+        const vendeurs = await Utilisateur.findAll({
+          where: { boutiqueId: boutique.id },
+          transaction: t,
+        });
+        for (const vendeur of vendeurs) {
+          const caisseVendeur = await getCaisseByType("CAISSE", vendeur.id, t);
+          if (caisseVendeur) {
+            caisseVendeur.solde_actuel += montant;
+            await caisseVendeur.save({ transaction: t });
+          }
+          const caisseCreditVenteUtilisateur = await getCaisseByType(
+            "CREDIT_VENTE",
+            vendeur.id,
+            t
+          );
+          if (caisseCreditVenteUtilisateur) {
+            caisseCreditVenteUtilisateur.solde_actuel -= montant;
+            await caisseCreditVenteUtilisateur.save({ transaction: t });
+          }
+        }
         // 🧾 Cas d'un crédit sur vente
-        caisseCreditVenteUtilisateur.solde_actuel -= montant;
+        // caisseCreditVenteUtilisateur.solde_actuel -= montant;
         caisseCreditVenteAdminBoutique.solde_actuel -= montant;
-        caisseVendeur.solde_actuel += montant;
+        // caisseVendeur.solde_actuel += montant;
         caisseAdminBoutique.solde_actuel += montant;
 
         await Promise.all([
-          caisseCreditVenteUtilisateur.save({ transaction: t }),
+          // caisseCreditVenteUtilisateur.save({ transaction: t }),
           caisseCreditVenteAdminBoutique.save({ transaction: t }),
-          caisseVendeur.save({ transaction: t }),
+          // caisseVendeur.save({ transaction: t }),
           caisseAdminBoutique.save({ transaction: t }),
         ]);
       }
@@ -338,11 +380,32 @@ const ajouterPayementCredit = async (req, res) => {
       caisseAdminBoutique.solde_actuel -= montant;
       await caisseAdminBoutique.save({ transaction: t });
 
-      caisseVendeur.solde_actuel -= montant;
-      await caisseVendeur.save({ transaction: t });
+      const vendeurs = await Utilisateur.findAll({
+        where: { boutiqueId: boutique.id },
+        transaction: t,
+      });
+      for (const vendeur of vendeurs) {
+        const caisseVendeur = await getCaisseByType("CAISSE", vendeur.id, t);
+        if (caisseVendeur) {
+          caisseVendeur.solde_actuel -= montant;
+          await caisseVendeur.save({ transaction: t });
+        }
+        const caisseCreditEspeceEntreUtilisateur = await getCaisseByType(
+          "CREDIT_ESPECE_ENTRE",
+          vendeur.id,
+          t
+        );
+        if (caisseCreditEspeceEntreUtilisateur) {
+          caisseCreditEspeceEntreUtilisateur.solde_actuel -= montant;
+          await caisseCreditEspeceEntreUtilisateur.save({ transaction: t });
+        }
+      }
 
-      caisseCreditEspeceEntreUtilisateur.solde_actuel -= montant;
-      await caisseCreditEspeceEntreUtilisateur.save({ transaction: t });
+      // caisseVendeur.solde_actuel -= montant;
+      // await caisseVendeur.save({ transaction: t });
+
+      // caisseCreditEspeceEntreUtilisateur.solde_actuel -= montant;
+      // await caisseCreditEspeceEntreUtilisateur.save({ transaction: t });
     }
 
     // 📊 Mise à jour du statut du crédit
@@ -381,30 +444,50 @@ const recupererPayementsCredit = async (req, res) => {
   if (!utilisateur) return;
 
   try {
-    let whereClause = {};
+    // 🔹 Récupération de l'utilisateur avec son rôle et sa boutique
+    const utilisateurConnecte = await Utilisateur.findByPk(utilisateur.id, {
+      include: [
+        { model: Role, attributes: ["nom"] },
+        { model: Boutique, as: "Boutique" },
+      ],
+    });
+    if (!utilisateurConnecte)
+      return res.status(404).json({ message: "Utilisateur non trouvé." });
 
-    if (utilisateur.Role.nom === "SUPERADMIN") {
-      whereClause = {};
-    } else if (utilisateur.Role.nom === "ADMIN") {
-      const boutique = await Boutique.findOne({
-        where: { utilisateurId: utilisateur.id },
+    let idsUtilisateurs = [];
+
+    if (utilisateurConnecte.Role.nom.toUpperCase() === "ADMIN") {
+      // Admin : récupérer toutes les boutiques qu'il a créées
+      const boutiques = await Boutique.findAll({
+        where: { utilisateurId: utilisateurConnecte.id },
+        include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
       });
+
+      for (const boutique of boutiques) {
+        // Ajouter tous les utilisateurs (admin + vendeurs) de cette boutique
+        idsUtilisateurs.push(boutique.utilisateurId); // admin
+        if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
+          boutique.Vendeurs.forEach((v) => idsUtilisateurs.push(v.id));
+        }
+      }
+    } else if (utilisateurConnecte.Role.nom.toUpperCase() === "VENDEUR") {
+      // Vendeur : récupérer tous les utilisateurs de sa boutique
+      const boutique = await Boutique.findByPk(utilisateurConnecte.boutiqueId, {
+        include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
+      });
+
       if (boutique) {
-        const vendeurs = await Utilisateur.findAll({
-          where: { boutiqueId: boutique.id },
-          attributes: ["id"],
-        });
-        const vendeursIds = vendeurs.map((v) => v.id);
-        whereClause.utilisateurId = [utilisateur.id, ...vendeursIds];
-      } else {
-        whereClause.utilisateurId = utilisateur.id;
+        idsUtilisateurs.push(boutique.utilisateurId); // admin
+        if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
+          boutique.Vendeurs.forEach((v) => idsUtilisateurs.push(v.id));
+        }
       }
     } else {
-      whereClause.utilisateurId = utilisateur.id;
+      return res.status(403).json({ message: "Rôle non autorisé." });
     }
 
     const payements = await PayementCredit.findAll({
-      where: whereClause,
+      where: { utilisateurId: idsUtilisateurs },
       include: [
         { model: Utilisateur, attributes: ["id", "nom", "email"] },
         {
@@ -416,6 +499,7 @@ const recupererPayementsCredit = async (req, res) => {
             "montantPaye",
             "montantRestant",
           ],
+          include: [{ model: Client, attributes: ["id", "nom"] }],
         },
       ],
       order: [["id", "DESC"]],
