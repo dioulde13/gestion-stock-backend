@@ -5,6 +5,7 @@ const boutiqueController = require('../controllers/boutiqueController');
 router.post('/create', boutiqueController.creerBoutiqueAvecAdmin); 
 router.get('/liste', boutiqueController.recupererBoutiques);
 router.get('/listeBoutiqueParAdmin', boutiqueController.recupererBoutiquesParAdmin);
+router.get('/listeBoutique', boutiqueController.recupererToutesBoutiques);
 router.get('/consulter/:id', boutiqueController.consulterBoutique);
 router.put('/modifier/:id', boutiqueController.modifierBoutique);
 router.delete('/supprimer/:id', boutiqueController.supprimerBoutique);

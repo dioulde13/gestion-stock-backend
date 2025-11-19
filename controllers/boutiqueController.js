@@ -237,6 +237,67 @@ const supprimerBoutique = async (req, res) => {
   }
 };
 
+const recupererToutesBoutiques = async (req, res) => {
+  try {
+    // 1️⃣ Vérifier le token
+    const authHeader = req.headers["authorization"];
+    if (!authHeader) {
+      return res
+        .status(403)
+        .json({ message: "Accès refusé. Aucun token trouvé." });
+    }
+
+    const token = authHeader.split(" ")[1];
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (err) {
+      return res.status(401).json({ message: "Token invalide." });
+    }
+
+    // 2️⃣ Récupérer l'utilisateur connecté
+    const utilisateur = await Utilisateur.findByPk(decoded.id, {
+      include: [{ model: Role, attributes: ["id", "nom"] }],
+    });
+
+    if (!utilisateur) {
+      return res.status(404).json({ message: "Utilisateur non trouvé." });
+    }
+
+    // Vérifier que c'est un admin
+    if (utilisateur.Role.nom.toLowerCase() !== "admin") {
+      return res.status(403).json({
+        message:
+          "Accès refusé. Seuls les admins peuvent accéder à ces données.",
+      });
+    }
+
+    // 3️⃣ Récupérer TOUTES les boutiques avec leurs admins et vendeurs
+    const boutiques = await Boutique.findAll({
+      include: [
+        {
+          model: Utilisateur,
+          as: "Admin",
+          attributes: ["id", "nom", "email"],
+          include: [{ model: Role, attributes: ["id", "nom"] }],
+        },
+        {
+          model: Utilisateur,
+          as: "Vendeurs",
+          attributes: ["id", "nom", "email"],
+          include: [{ model: Role, attributes: ["id", "nom"] }],
+        },
+      ],
+    });
+
+    res.status(200).json(boutiques);
+  } catch (error) {
+    console.error("Erreur lors de la récupération des boutiques :", error);
+    res.status(500).json({ message: "Erreur interne du serveur." });
+  }
+};
+
+
 module.exports = {
   creerBoutiqueAvecAdmin,
   recupererBoutiques,
@@ -244,4 +305,5 @@ module.exports = {
   modifierBoutique,
   supprimerBoutique,
   recupererBoutiquesParAdmin,
+  recupererToutesBoutiques
 };
