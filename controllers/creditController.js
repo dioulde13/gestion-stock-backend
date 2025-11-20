@@ -43,7 +43,7 @@ const annulerCredit = async (req, res) => {
     await sequelize.transaction(async (t) => {
       // 1️⃣ Récupération du crédit
       const credit = await Credit.findByPk(id, {
-        include: [{ model: Client }],
+        include: [{ model: Client }, { model: Boutique }],
         transaction: t,
       });
 
@@ -51,78 +51,158 @@ const annulerCredit = async (req, res) => {
         return res.status(404).json({ message: "Crédit non trouvé." });
       }
 
+      if (credit.status === "PAYER") {
+        return res.status(400).json({ message: "Ce crédit est déjà payer." });
+      }
+
+      if (credit.status === "EN COURS") {
+        return res
+          .status(400)
+          .json({ message: "Ce crédit est déjà en cours de payement." });
+      }
+
       if (credit.status === "ANNULER") {
         return res.status(400).json({ message: "Ce crédit est déjà annulé." });
       }
 
-      // 2️⃣ Récupération des caisses concernées
+      const montant = credit.montant;
+
+      // 2️⃣ Récupération de la boutique et de ses vendeurs
+      const boutique = credit.boutiqueId
+        ? await Boutique.findByPk(credit.boutiqueId, { transaction: t })
+        : null;
+
+      const vendeurs = boutique
+        ? await Utilisateur.findAll({
+            where: { boutiqueId: boutique.id },
+            transaction: t,
+          })
+        : [];
+
+      const adminBoutique = boutique
+        ? await Utilisateur.findByPk(boutique.utilisateurId, { transaction: t })
+        : null;
+
+      // 3️⃣ Récupération des caisses du vendeur initiateur
       const caisseUtilisateur = await getCaisseByType(
         "CAISSE",
         utilisateur.id,
         t
       );
-      const caisseAdminBoutique = await getCaisseByType(
-        "CAISSE",
-        credit.boutiqueId
-          ? (
-              await Boutique.findByPk(credit.boutiqueId, { transaction: t })
-            ).utilisateurId
-          : null,
-        t
-      );
-
       const caisseCreditEspeceUtilisateur = await getCaisseByType(
         "CREDIT_ESPECE",
         utilisateur.id,
         t
       );
-      const caisseCreditEspeceAdminBoutique = await getCaisseByType(
-        "CREDIT_ESPECE",
-        caisseAdminBoutique.utilisateurId,
-        t
-      );
-
       const caisseCreditEspeceEntreUtilisateur = await getCaisseByType(
         "CREDIT_ESPECE_ENTRE",
         utilisateur.id,
         t
       );
-      const caisseCreditEspeceEntreAdminBoutique = await getCaisseByType(
-        "CREDIT_ESPECE_ENTRE",
-        caisseAdminBoutique.utilisateurId,
-        t
-      );
 
-      const montant = credit.montant;
+      // 4️⃣ Récupération des caisses de l’admin si existant
+      let caisseAdmin = null;
+      let caisseCreditEspeceAdmin = null;
+      let caisseCreditEspeceEntreAdmin = null;
 
-      // 3️⃣ Inversion des mouvements de caisse
+      if (adminBoutique) {
+        caisseAdmin = await getCaisseByType("CAISSE", adminBoutique.id, t);
+        caisseCreditEspeceAdmin = await getCaisseByType(
+          "CREDIT_ESPECE",
+          adminBoutique.id,
+          t
+        );
+        caisseCreditEspeceEntreAdmin = await getCaisseByType(
+          "CREDIT_ESPECE_ENTRE",
+          adminBoutique.id,
+          t
+        );
+      }
+
+      // ============================
+      // 5️⃣ Inversion des mouvements selon le type de crédit
+      // ============================
       if (credit.type === "SORTIE") {
-        caisseCreditEspeceAdminBoutique.solde_actuel -= montant;
+        // ➤ Mise à jour admin si non-vendeur
+        if (adminBoutique && !vendeurs.some((v) => v.id === adminBoutique.id)) {
+          caisseCreditEspeceAdmin.solde_actuel -= montant;
+          caisseAdmin.solde_actuel += montant;
+
+          await Promise.all([
+            caisseCreditEspeceAdmin.save({ transaction: t }),
+            caisseAdmin.save({ transaction: t }),
+          ]);
+        }
+
+        // ➤ Mise à jour de tous les vendeurs
+        for (const vendeur of vendeurs) {
+          const caisseVendeur = await getCaisseByType("CAISSE", vendeur.id, t);
+          const caisseCreditEspeceVendeur = await getCaisseByType(
+            "CREDIT_ESPECE",
+            vendeur.id,
+            t
+          );
+
+          caisseCreditEspeceVendeur.solde_actuel -= montant;
+          caisseVendeur.solde_actuel += montant;
+
+          await Promise.all([
+            caisseCreditEspeceVendeur.save({ transaction: t }),
+            caisseVendeur.save({ transaction: t }),
+          ]);
+        }
+
+        // ➤ Mise à jour utilisateur initiateur
         caisseCreditEspeceUtilisateur.solde_actuel -= montant;
         caisseUtilisateur.solde_actuel += montant;
-        caisseAdminBoutique.solde_actuel += montant;
 
         await Promise.all([
-          caisseCreditEspeceAdminBoutique.save({ transaction: t }),
           caisseCreditEspeceUtilisateur.save({ transaction: t }),
           caisseUtilisateur.save({ transaction: t }),
-          caisseAdminBoutique.save({ transaction: t }),
         ]);
       } else if (credit.type === "ENTRE") {
+        // ➤ Mise à jour admin si non-vendeur
+        if (adminBoutique && !vendeurs.some((v) => v.id === adminBoutique.id)) {
+          caisseCreditEspeceEntreAdmin.solde_actuel -= montant;
+          caisseAdmin.solde_actuel -= montant;
+
+          await Promise.all([
+            caisseCreditEspeceEntreAdmin.save({ transaction: t }),
+            caisseAdmin.save({ transaction: t }),
+          ]);
+        }
+
+        // ➤ Mise à jour de tous les vendeurs
+        for (const vendeur of vendeurs) {
+          const caisseVendeur = await getCaisseByType("CAISSE", vendeur.id, t);
+          const caisseCreditEspeceEntreVendeur = await getCaisseByType(
+            "CREDIT_ESPECE_ENTRE",
+            vendeur.id,
+            t
+          );
+
+          caisseCreditEspeceEntreVendeur.solde_actuel -= montant;
+          caisseVendeur.solde_actuel -= montant;
+
+          await Promise.all([
+            caisseCreditEspeceEntreVendeur.save({ transaction: t }),
+            caisseVendeur.save({ transaction: t }),
+          ]);
+        }
+
+        // ➤ Mise à jour utilisateur initiateur
         caisseCreditEspeceEntreUtilisateur.solde_actuel -= montant;
-        caisseCreditEspeceEntreAdminBoutique.solde_actuel -= montant;
         caisseUtilisateur.solde_actuel -= montant;
-        caisseAdminBoutique.solde_actuel -= montant;
 
         await Promise.all([
           caisseCreditEspeceEntreUtilisateur.save({ transaction: t }),
-          caisseCreditEspeceEntreAdminBoutique.save({ transaction: t }),
           caisseUtilisateur.save({ transaction: t }),
-          caisseAdminBoutique.save({ transaction: t }),
         ]);
       }
 
-      // 4️⃣ Mise à jour du crédit
+      // ============================
+      // 6️⃣ Mise à jour du crédit
+      // ============================
       credit.status = "ANNULER";
       await credit.save({ transaction: t });
 
@@ -340,44 +420,46 @@ const recupererCredits = async (req, res) => {
   if (!utilisateur) return;
 
   try {
-     // 🔹 Récupération de l'utilisateur avec son rôle et sa boutique
+    // 🔹 Récupération de l'utilisateur avec son rôle et sa boutique
     const utilisateurConnecte = await Utilisateur.findByPk(utilisateur.id, {
-      include: [{ model: Role, attributes: ['nom'] }, { model: Boutique, as: 'Boutique' }],
+      include: [
+        { model: Role, attributes: ["nom"] },
+        { model: Boutique, as: "Boutique" },
+      ],
     });
-    if (!utilisateurConnecte) return res.status(404).json({ message: 'Utilisateur non trouvé.' });
+    if (!utilisateurConnecte)
+      return res.status(404).json({ message: "Utilisateur non trouvé." });
 
     let idsUtilisateurs = [];
 
-    if (utilisateurConnecte.Role.nom.toUpperCase() === 'ADMIN') {
+    if (utilisateurConnecte.Role.nom.toUpperCase() === "ADMIN") {
       // Admin : récupérer toutes les boutiques qu'il a créées
       const boutiques = await Boutique.findAll({
         where: { utilisateurId: utilisateurConnecte.id },
-        include: [{ model: Utilisateur, as: 'Vendeurs', attributes: ['id'] }],
+        include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
       });
 
       for (const boutique of boutiques) {
         // Ajouter tous les utilisateurs (admin + vendeurs) de cette boutique
         idsUtilisateurs.push(boutique.utilisateurId); // admin
         if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
-          boutique.Vendeurs.forEach(v => idsUtilisateurs.push(v.id));
+          boutique.Vendeurs.forEach((v) => idsUtilisateurs.push(v.id));
         }
       }
-
-    } else if (utilisateurConnecte.Role.nom.toUpperCase() === 'VENDEUR') {
+    } else if (utilisateurConnecte.Role.nom.toUpperCase() === "VENDEUR") {
       // Vendeur : récupérer tous les utilisateurs de sa boutique
       const boutique = await Boutique.findByPk(utilisateurConnecte.boutiqueId, {
-        include: [{ model: Utilisateur, as: 'Vendeurs', attributes: ['id'] }],
+        include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
       });
 
       if (boutique) {
         idsUtilisateurs.push(boutique.utilisateurId); // admin
         if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
-          boutique.Vendeurs.forEach(v => idsUtilisateurs.push(v.id));
+          boutique.Vendeurs.forEach((v) => idsUtilisateurs.push(v.id));
         }
       }
-
     } else {
-      return res.status(403).json({ message: 'Rôle non autorisé.' });
+      return res.status(403).json({ message: "Rôle non autorisé." });
     }
 
     const credits = await Credit.findAll({

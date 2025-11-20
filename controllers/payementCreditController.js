@@ -58,21 +58,13 @@ const annulerPayementCredit = async (req, res) => {
       throw new Error("Crédit associé introuvable.");
     }
 
-    // Récupération des caisses nécessaires
     const boutique = await Boutique.findByPk(utilisateur.boutiqueId, {
       transaction: t,
     });
 
-    const caisseVendeur = await getCaisseByType("CAISSE", utilisateur.id, t);
     const caisseAdminBoutique = await getCaisseByType(
       "CAISSE",
       boutique.utilisateurId,
-      t
-    );
-
-    const caisseCreditEspeceUtilisateur = await getCaisseByType(
-      "CREDIT_ESPECE",
-      utilisateur.id,
       t
     );
     const caisseCreditEspeceAdminBoutique = await getCaisseByType(
@@ -80,21 +72,9 @@ const annulerPayementCredit = async (req, res) => {
       boutique.utilisateurId,
       t
     );
-
-    const caisseCreditVenteUtilisateur = await getCaisseByType(
-      "CREDIT_VENTE",
-      utilisateur.id,
-      t
-    );
     const caisseCreditVenteAdminBoutique = await getCaisseByType(
       "CREDIT_VENTE",
       boutique.utilisateurId,
-      t
-    );
-
-    const caisseCreditEspeceEntreUtilisateur = await getCaisseByType(
-      "CREDIT_ESPECE_ENTRE",
-      utilisateur.id,
       t
     );
     const caisseCreditEspeceEntreAdminBoutique = await getCaisseByType(
@@ -105,39 +85,88 @@ const annulerPayementCredit = async (req, res) => {
 
     const montant = payement.montant;
 
-    // 💰 Inversion des mouvements de caisse selon le type du crédit
     if (credit.type === "SORTIE") {
       if (credit.typeCredit === "ESPECE") {
-        // On inverse le paiement en espèces
+        const vendeurs = await Utilisateur.findAll({
+          where: { boutiqueId: boutique.id },
+          transaction: t,
+        });
+
+        for (const vendeur of vendeurs) {
+          const caisseVendeurs = await getCaisseByType("CAISSE", vendeur.id, t);
+          const caisseCreditEspeceUtilisateur = await getCaisseByType(
+            "CREDIT_ESPECE",
+            vendeur.id,
+            t
+          );
+
+          caisseVendeurs.solde_actuel -= montant;
+          await caisseVendeurs.save({ transaction: t });
+
+          caisseCreditEspeceUtilisateur.solde_actuel += montant;
+          await caisseCreditEspeceUtilisateur.save({ transaction: t });
+        }
+
+        if (caisseAdminBoutique) {
+          caisseAdminBoutique.solde_actuel -= montant;
+          await caisseAdminBoutique.save({ transaction: t });
+        }
+
         caisseCreditEspeceAdminBoutique.solde_actuel += montant;
-        caisseCreditEspeceUtilisateur.solde_actuel += montant;
-        caisseVendeur.solde_actuel -= montant;
-        caisseAdminBoutique.solde_actuel -= montant;
+        await caisseCreditEspeceAdminBoutique.save({ transaction: t });
+        await caisseAdminBoutique.save({ transaction: t });
       } else if (credit.typeCredit === "VENTE") {
-        // On inverse le paiement d’un crédit vente
-        caisseCreditVenteUtilisateur.solde_actuel += montant;
+        const vendeurs = await Utilisateur.findAll({
+          where: { boutiqueId: boutique.id },
+          transaction: t,
+        });
+
+        for (const vendeur of vendeurs) {
+          const caisseVendeurs = await getCaisseByType("CAISSE", vendeur.id, t);
+          const caisseCreditVenteUtilisateur = await getCaisseByType(
+            "CREDIT_VENTE",
+            vendeur.id,
+            t
+          );
+
+          caisseVendeurs.solde_actuel -= montant;
+          await caisseVendeurs.save({ transaction: t });
+
+          caisseCreditVenteUtilisateur.solde_actuel += montant;
+          await caisseCreditVenteUtilisateur.save({ transaction: t });
+        }
+
         caisseCreditVenteAdminBoutique.solde_actuel += montant;
-        caisseVendeur.solde_actuel -= montant;
         caisseAdminBoutique.solde_actuel -= montant;
+        await caisseCreditVenteAdminBoutique.save({ transaction: t });
+        await caisseAdminBoutique.save({ transaction: t });
       }
     } else if (credit.type === "ENTRE") {
-      caisseCreditEspeceEntreAdminBoutique.solde_actuel += montant;
-      caisseCreditEspeceEntreUtilisateur.solde_actuel += montant;
-      caisseVendeur.solde_actuel += montant;
-      caisseAdminBoutique.solde_actuel += montant;
-    }
+      const vendeurs = await Utilisateur.findAll({
+        where: { boutiqueId: boutique.id },
+        transaction: t,
+      });
 
-    // Sauvegarde de toutes les caisses
-    await Promise.all([
-      caisseVendeur.save({ transaction: t }),
-      caisseAdminBoutique.save({ transaction: t }),
-      caisseCreditEspeceUtilisateur.save({ transaction: t }),
-      caisseCreditEspeceAdminBoutique.save({ transaction: t }),
-      caisseCreditVenteUtilisateur.save({ transaction: t }),
-      caisseCreditVenteAdminBoutique.save({ transaction: t }),
-      caisseCreditEspeceEntreUtilisateur.save({ transaction: t }),
-      caisseCreditEspeceEntreAdminBoutique.save({ transaction: t }),
-    ]);
+      for (const vendeur of vendeurs) {
+        const caisseVendeurs = await getCaisseByType("CAISSE", vendeur.id, t);
+        const caisseCreditEspeceEntreUtilisateur = await getCaisseByType(
+          "CREDIT_ESPECE_ENTRE",
+          vendeur.id,
+          t
+        );
+
+        caisseVendeurs.solde_actuel -= montant;
+        await caisseVendeurs.save({ transaction: t });
+
+        caisseCreditEspeceEntreUtilisateur.solde_actuel += montant;
+        await caisseCreditEspeceEntreUtilisateur.save({ transaction: t });
+      }
+
+      caisseCreditEspeceEntreAdminBoutique.solde_actuel += montant;
+      caisseAdminBoutique.solde_actuel += montant;
+      await caisseCreditEspeceEntreAdminBoutique.save({ transaction: t });
+      await caisseAdminBoutique.save({ transaction: t });
+    }
 
     // 📉 Mise à jour du crédit
     credit.montantPaye -= montant;

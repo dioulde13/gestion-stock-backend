@@ -86,6 +86,7 @@ const validerVersement = async (req, res) => {
   const utilisateur = await getUserFromToken(req, res);
   if (!utilisateur) return;
 
+  // Vérification du rôle
   if (utilisateur.Role.nom !== "ADMIN") {
     return res
       .status(403)
@@ -93,35 +94,62 @@ const validerVersement = async (req, res) => {
   }
 
   const t = await sequelize.transaction();
+
   try {
+    // 🔍 1) Charger le versement
     const versement = await Versement.findByPk(id, { transaction: t });
     if (!versement) {
       await t.rollback();
       return res.status(404).json({ message: "Versement non trouvé." });
     }
 
-    // Empêcher toute modification si le versement est déjà validé ou rejeté
+    // 🔒 Empêcher modifications
     if (versement.status === "VALIDÉ") {
       await t.rollback();
-      return res.status(400).json({ message: "Ce versement a déjà été VALIDÉ et ne peut pas être rejeté." });
+      return res.status(400).json({
+        message: "Ce versement a déjà été VALIDÉ et ne peut pas être rejeté.",
+      });
     }
+
     if (versement.status === "REJETÉ") {
       await t.rollback();
-      return res.status(400).json({ message: "Ce versement a déjà été REJETÉ et ne peut pas être validé." });
+      return res.status(400).json({
+        message: "Ce versement a déjà été REJETÉ et ne peut pas être validé.",
+      });
     }
 
-    // Vérifier que le versement est bien en attente
     if (versement.status !== "EN_ATTENTE") {
       await t.rollback();
-      return res.status(400).json({ message: "Ce versement ne peut pas être traité." });
+      return res
+        .status(400)
+        .json({ message: "Ce versement ne peut pas être traité." });
     }
 
-    // 1️⃣ Caisse du vendeur
-    const caisseVendeur = await getCaisseByType(
-      "CAISSE",
-      versement.utilisateurId,
-      t
-    );
+    // 🔍 2) Récupérer le vendeur
+    const vendeur = await Utilisateur.findByPk(versement.utilisateurId, {
+      transaction: t,
+    });
+
+    if (!vendeur) {
+      await t.rollback();
+      return res.status(404).json({ message: "Vendeur introuvable." });
+    }
+
+    // 🔍 3) Récupérer la boutique du vendeur
+    const boutique = await Boutique.findByPk(vendeur.boutiqueId, {
+      transaction: t,
+    });
+
+    if (!boutique) {
+      await t.rollback();
+      return res
+        .status(404)
+        .json({ message: "Boutique du vendeur introuvable." });
+    }
+
+    // 🧮 4) Caisse du vendeur qui a fait le versement
+    const caisseVendeur = await getCaisseByType("CAISSE", vendeur.id, t);
+
     if (!caisseVendeur) {
       await t.rollback();
       return res.status(404).json({ message: "Caisse vendeur non trouvée." });
@@ -129,31 +157,49 @@ const validerVersement = async (req, res) => {
 
     if (caisseVendeur.solde_actuel < versement.montant) {
       await t.rollback();
-      return res.status(400).json({ message: "Solde insuffisant dans la caisse du vendeur." });
+      return res
+        .status(400)
+        .json({ message: "Solde insuffisant dans la caisse du vendeur." });
     }
 
-    // 💰 Débit vendeur
-    caisseVendeur.solde_actuel -= versement.montant;
-    await caisseVendeur.save({ transaction: t });
+    // 🧮 5) Récupérer tous les vendeurs de la boutique
+    const vendeurs = await Utilisateur.findAll({
+      where: { boutiqueId: boutique.id },
+      transaction: t,
+    });
 
-    // ✅ Mise à jour du statut
+    // 🌀 Déduire le montant sur chaque caisse vendeur
+    for (const v of vendeurs) {
+      const caisse = await getCaisseByType("CAISSE", v.id, t);
+      if (caisse) {
+        caisse.solde_actuel -= versement.montant;
+        await caisse.save({ transaction: t });
+      }
+    }
+
+    // 🟢 6) Changer le statut du versement
     versement.status = "VALIDÉ";
     await versement.save({ transaction: t });
 
+    // 🔐 Commit final
     await t.commit();
 
     // 🔔 Notification temps réel
     const io = req.app.get("io");
     if (io) io.emit("caisseMisAJour");
 
-    res.status(200).json({ message: "Versement validé avec succès.", versement });
+    return res.status(200).json({
+      message: "Versement validé avec succès.",
+      versement,
+    });
   } catch (error) {
     await t.rollback();
     console.error("Erreur lors de la validation du versement :", error);
-    res.status(500).json({ message: error.message || "Erreur interne du serveur." });
+    return res
+      .status(500)
+      .json({ message: error.message || "Erreur interne du serveur." });
   }
 };
-
 
 /* ============================================================
    ✅ 3. Rejeter un versement (par le responsable)
@@ -180,13 +226,17 @@ const rejeterVersement = async (req, res) => {
     // Empêcher toute modification si déjà rejeté
     if (versement.status === "REJETÉ") {
       await t.rollback();
-      return res.status(400).json({ message: "Ce versement est déjà REJETÉ et ne peut pas être traité." });
+      return res.status(400).json({
+        message: "Ce versement est déjà REJETÉ et ne peut pas être traité.",
+      });
     }
 
     // Empêcher de rejeter un versement déjà validé si tu veux stricte interdiction
     if (versement.status === "VALIDÉ") {
       await t.rollback();
-      return res.status(400).json({ message: "Ce versement est déjà VALIDÉ et ne peut pas être rejeté." });
+      return res.status(400).json({
+        message: "Ce versement est déjà VALIDÉ et ne peut pas être rejeté.",
+      });
     }
 
     // Versements EN_ATTENTE ou VALIDÉ peuvent être rejetés
@@ -231,7 +281,6 @@ const rejeterVersement = async (req, res) => {
   }
 };
 
-
 /* ============================================================
    ✅ 4. Récupérer les versements selon le rôle
 ============================================================ */
@@ -242,42 +291,44 @@ const recupererVersement = async (req, res) => {
 
     // 🔹 Récupération de l'utilisateur avec son rôle et sa boutique
     const utilisateurConnecte = await Utilisateur.findByPk(utilisateur.id, {
-      include: [{ model: Role, attributes: ['nom'] }, { model: Boutique, as: 'Boutique' }],
+      include: [
+        { model: Role, attributes: ["nom"] },
+        { model: Boutique, as: "Boutique" },
+      ],
     });
-    if (!utilisateurConnecte) return res.status(404).json({ message: 'Utilisateur non trouvé.' });
+    if (!utilisateurConnecte)
+      return res.status(404).json({ message: "Utilisateur non trouvé." });
 
     let idsUtilisateurs = [];
 
-    if (utilisateurConnecte.Role.nom.toUpperCase() === 'ADMIN') {
+    if (utilisateurConnecte.Role.nom.toUpperCase() === "ADMIN") {
       // Admin : récupérer toutes les boutiques qu'il a créées
       const boutiques = await Boutique.findAll({
         where: { utilisateurId: utilisateurConnecte.id },
-        include: [{ model: Utilisateur, as: 'Vendeurs', attributes: ['id'] }],
+        include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
       });
 
       for (const boutique of boutiques) {
         // Ajouter tous les utilisateurs (admin + vendeurs) de cette boutique
         idsUtilisateurs.push(boutique.utilisateurId); // admin
         if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
-          boutique.Vendeurs.forEach(v => idsUtilisateurs.push(v.id));
+          boutique.Vendeurs.forEach((v) => idsUtilisateurs.push(v.id));
         }
       }
-
-    } else if (utilisateurConnecte.Role.nom.toUpperCase() === 'VENDEUR') {
+    } else if (utilisateurConnecte.Role.nom.toUpperCase() === "VENDEUR") {
       // Vendeur : récupérer tous les utilisateurs de sa boutique
       const boutique = await Boutique.findByPk(utilisateurConnecte.boutiqueId, {
-        include: [{ model: Utilisateur, as: 'Vendeurs', attributes: ['id'] }],
+        include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
       });
 
       if (boutique) {
         idsUtilisateurs.push(boutique.utilisateurId); // admin
         if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
-          boutique.Vendeurs.forEach(v => idsUtilisateurs.push(v.id));
+          boutique.Vendeurs.forEach((v) => idsUtilisateurs.push(v.id));
         }
       }
-
     } else {
-      return res.status(403).json({ message: 'Rôle non autorisé.' });
+      return res.status(403).json({ message: "Rôle non autorisé." });
     }
 
     const versements = await Versement.findAll({
@@ -285,7 +336,7 @@ const recupererVersement = async (req, res) => {
       include: [
         {
           model: Utilisateur,
-          as: "vendeur", 
+          as: "vendeur",
           attributes: ["id", "nom", "email"],
         },
       ],

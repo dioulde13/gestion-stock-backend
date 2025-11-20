@@ -237,34 +237,29 @@ const creerVente = async (req, res) => {
       // await caisseGlobale.save({ transaction: t });
       await beneficeRealise.save({ transaction: t });
     } else if (type === "CREDIT") {
-      const caisseCredit = await getCaisseByType(
-        "CREDIT_VENTE",
-        utilisateur.id,
-        t
-      );
-      const beneficeCredit = await getCaisseByType(
-        "BENEFICE_CREDIT",
-        utilisateur.id,
-        t
-      );
-      caisseCredit.solde_actuel += totalVente;
-      beneficeCredit.solde_actuel += benefice;
-      await caisseCredit.save({ transaction: t });
-      await beneficeCredit.save({ transaction: t });
-
-      // Création du crédit
-      let reference = "REF0001";
-      const dernierCredit = await Credit.findOne({
-        where: { utilisateurId: utilisateur.id },
-        order: [["createdAt", "DESC"]],
-        attributes: ["reference"],
+      const vendeurs = await Utilisateur.findAll({
+        where: { boutiqueId: boutique.id },
         transaction: t,
       });
-      if (dernierCredit && dernierCredit.reference) {
-        const numero =
-          parseInt(dernierCredit.reference.replace(/\D/g, "")) || 0;
-        reference = `REF${(numero + 1).toString().padStart(4, "0")}`;
+      for (const vendeur of vendeurs) {
+        const caisseCredit = await getCaisseByType(
+          "CREDIT_VENTE",
+          vendeur.id,
+          t
+        );
+        caisseCredit.solde_actuel += totalVente;
+        await caisseCredit.save({ transaction: t });
       }
+
+      // Génération de la référence
+      const dernierCredit = await Credit.findOne({
+        order: [["id", "DESC"]],
+        transaction: t,
+      });
+      const numero = dernierCredit
+        ? parseInt(dernierCredit.reference.replace(/^REF/, "")) + 1
+        : 1;
+      const reference = "REF" + String(numero).padStart(4, "0");
 
       await Credit.create(
         {
@@ -279,7 +274,7 @@ const creerVente = async (req, res) => {
           beneficeCredit: benefice,
           type: "SORTIE",
           typeCredit: "VENTE",
-          status: "VALIDER",
+          status: "NON PAYER",
           boutiqueId: utilisateur.boutiqueId,
         },
         { transaction: t }
@@ -316,18 +311,50 @@ const recupererVentes = async (req, res) => {
     const utilisateur = await getUserFromToken(req, res);
     if (!utilisateur) return;
 
-    let whereClause = {};
-    if (utilisateur.Role && utilisateur.Role.nom.toUpperCase() === "ADMIN") {
+    // 🔹 Récupération de l'utilisateur avec son rôle et sa boutique
+    const utilisateurConnecte = await Utilisateur.findByPk(utilisateur.id, {
+      include: [
+        { model: Role, attributes: ["nom"] },
+        { model: Boutique, as: "Boutique" },
+      ],
+    });
+    if (!utilisateurConnecte)
+      return res.status(404).json({ message: "Utilisateur non trouvé." });
+
+    let idsUtilisateurs = [];
+
+    if (utilisateurConnecte.Role.nom.toUpperCase() === "ADMIN") {
+      // Admin : récupérer toutes les boutiques qu'il a créées
       const boutiques = await Boutique.findAll({
-        where: { utilisateurId: utilisateur.id },
+        where: { utilisateurId: utilisateurConnecte.id },
+        include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
       });
-      whereClause["$Utilisateur.boutiqueId$"] = boutiques.map((b) => b.id);
+
+      for (const boutique of boutiques) {
+        // Ajouter tous les utilisateurs (admin + vendeurs) de cette boutique
+        idsUtilisateurs.push(boutique.utilisateurId); // admin
+        if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
+          boutique.Vendeurs.forEach((v) => idsUtilisateurs.push(v.id));
+        }
+      }
+    } else if (utilisateurConnecte.Role.nom.toUpperCase() === "VENDEUR") {
+      // Vendeur : récupérer tous les utilisateurs de sa boutique
+      const boutique = await Boutique.findByPk(utilisateurConnecte.boutiqueId, {
+        include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
+      });
+
+      if (boutique) {
+        idsUtilisateurs.push(boutique.utilisateurId); // admin
+        if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
+          boutique.Vendeurs.forEach((v) => idsUtilisateurs.push(v.id));
+        }
+      }
     } else {
-      whereClause.utilisateurId = utilisateur.id;
+      return res.status(403).json({ message: "Rôle non autorisé." });
     }
 
     const ventes = await Vente.findAll({
-      where: whereClause,
+      where: { utilisateurId: idsUtilisateurs },
       include: [
         {
           model: LigneVente,
@@ -484,50 +511,148 @@ const annulerVente = async (req, res) => {
       benefice += (ligne.prix_vente - ligne.prix_achat) * ligne.quantite;
     }
 
+    const boutique = await Boutique.findByPk(utilisateur.boutiqueId, {
+      transaction: t,
+    });
+
+    const admin = await Utilisateur.findByPk(boutique.utilisateurId, {
+      transaction: t,
+    });
     // Mise à jour des caisses utilisateur
     if (type === "ACHAT") {
-      const caissePrincipale = await getCaisseByType(
-        "PRINCIPALE",
-        utilisateur.id,
-        t
-      );
-      const caisseGlobale = await getCaisseByType("CAISSE", utilisateur.id, t);
-      const beneficeRealise = await getCaisseByType(
-        "BENEFICE",
-        utilisateur.id,
-        t
-      );
-      caissePrincipale.solde_actuel -= total;
-      caisseGlobale.solde_actuel -= total;
-      beneficeRealise.solde_actuel -= benefice;
-      await caissePrincipale.save({ transaction: t });
-      await caisseGlobale.save({ transaction: t });
-      await beneficeRealise.save({ transaction: t });
-    } else if (type === "CREDIT") {
-      const caisseCredit = await getCaisseByType(
-        "CREDIT_VENTE",
-        utilisateur.id,
-        t
-      );
-      const beneficeCredit = await getCaisseByType(
-        "BENEFICE_CREDIT",
-        utilisateur.id,
-        t
-      );
-      caisseCredit.solde_actuel -= total;
-      beneficeCredit.solde_actuel -= benefice;
-      await caisseCredit.save({ transaction: t });
-      await beneficeCredit.save({ transaction: t });
+      // 🔹 Récupérer les vendeurs de la boutique
+      const vendeurs = await Utilisateur.findAll({
+        where: { boutiqueId: boutique.id },
+        transaction: t,
+      });
 
+      // ============================================================
+      // 🔹 1) Si c'est un ADMIN et qu'il n'est PAS dans les vendeurs
+      // ============================================================
+      if (admin && !vendeurs.some((v) => v.id === admin.id)) {
+        const valeurStockPurAdmin = await getCaisseByType(
+          "VALEUR_STOCK_PUR",
+          admin.id,
+          t
+        );
+
+        const caisseAdminPrincipal = await getCaisseByType(
+          "CAISSE",
+          admin.id,
+          t
+        );
+
+        if (valeurStockPurAdmin && caisseAdminPrincipal) {
+          // Vérification solde admin
+          if (caisseAdminPrincipal.solde_actuel < totalAchat) {
+            throw new Error("Solde insuffisant dans la caisse ADMIN.");
+          }
+
+          caisseAdminPrincipal.solde_actuel -= total;
+          valeurStockPurAdmin.solde_actuel += totalAchat;
+
+          await caisseAdminPrincipal.save({ transaction: t });
+          await valeurStockPurAdmin.save({ transaction: t });
+        }
+      }
+
+      // ============================================================
+      // 🔹 2) Mise à jour des vendeurs de la boutique
+      // ============================================================
+      for (const vendeur of vendeurs) {
+        const caisseUtilisateur = await getCaisseByType(
+          "CAISSE",
+          vendeur.id,
+          t
+        );
+
+        const valeurStockPur = await getCaisseByType(
+          "VALEUR_STOCK_PUR",
+          vendeur.id,
+          t
+        );
+
+        // Vérification solde vendeur
+        if (caisseUtilisateur.solde_actuel < totalAchat) {
+          throw new Error(
+            `Solde insuffisant pour le vendeur ${vendeur.nom || vendeur.id}.`
+          );
+        }
+
+        caisseUtilisateur.solde_actuel -= total;
+        valeurStockPur.solde_actuel += totalAchat;
+
+        await caisseUtilisateur.save({ transaction: t });
+        await valeurStockPur.save({ transaction: t });
+      }
+    } else if (type === "CREDIT") {
+      // 🔹 Récupérer les vendeurs de la boutique
+      const vendeurs = await Utilisateur.findAll({
+        where: { boutiqueId: boutique.id },
+        transaction: t,
+      });
+
+      // ============================================================
+      // 🔹 1) Mise à jour ADMIN si non-vendeur
+      // ============================================================
+      if (admin && !vendeurs.some((v) => v.id === admin.id)) {
+        const valeurStockPurAdmin = await getCaisseByType(
+          "VALEUR_STOCK_PUR",
+          admin.id,
+          t
+        );
+
+        const caisseAdminCredit = await getCaisseByType(
+          "CREDIT_VENTE",
+          admin.id,
+          t
+        );
+
+        if (valeurStockPurAdmin && caisseAdminCredit) {
+          caisseAdminCredit.solde_actuel -= total;
+          valeurStockPurAdmin.solde_actuel += totalAchat;
+
+          await caisseAdminCredit.save({ transaction: t });
+          await valeurStockPurAdmin.save({ transaction: t });
+        }
+      }
+
+      // ============================================================
+      // 🔹 2) Mise à jour des vendeurs de la boutique
+      // ============================================================
+      for (const vendeur of vendeurs) {
+        const caisseVendeurCredit = await getCaisseByType(
+          "CREDIT_VENTE",
+          vendeur.id,
+          t
+        );
+
+        const valeurStockPur = await getCaisseByType(
+          "VALEUR_STOCK_PUR",
+          vendeur.id,
+          t
+        );
+
+        caisseVendeurCredit.solde_actuel -= total;
+        valeurStockPur.solde_actuel += totalAchat;
+
+        await caisseVendeurCredit.save({ transaction: t });
+        await valeurStockPur.save({ transaction: t });
+      }
+
+      // ============================================================
+      // 🔹 3) Annuler le crédit précédent correspondant
+      // ============================================================
       const credit = await Credit.findOne({
         where: {
           clientId,
           typeCredit: "VENTE",
           montant: total,
-          status: "VALIDER",
+          status: "NON PAYER",
         },
         transaction: t,
       });
+
       if (credit) {
         credit.status = "ANNULER";
         await credit.save({ transaction: t });

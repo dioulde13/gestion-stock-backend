@@ -204,50 +204,53 @@ const recupererAchats = async (req, res) => {
     const utilisateur = await getUserFromToken(req, res);
     if (!utilisateur) return;
 
-    let whereClause = {};
+    // 🔹 Récupération de l'utilisateur avec son rôle et sa boutique
+    const utilisateurConnecte = await Utilisateur.findByPk(utilisateur.id, {
+      include: [
+        { model: Role, attributes: ["nom"] },
+        { model: Boutique, as: "Boutique" },
+      ],
+    });
+    if (!utilisateurConnecte)
+      return res.status(404).json({ message: "Utilisateur non trouvé." });
 
-    // ============================================================
-    // 🔹 SI ADMIN : récupérer toutes les boutiques + tous les vendeurs
-    // ============================================================
-    if (utilisateur.Role && utilisateur.Role.nom.toUpperCase() === "ADMIN") {
-      // Récupérer toutes les boutiques créées par l'admin
+    let idsUtilisateurs = [];
+
+    if (utilisateurConnecte.Role.nom.toUpperCase() === "ADMIN") {
+      // Admin : récupérer toutes les boutiques qu'il a créées
       const boutiques = await Boutique.findAll({
-        where: { utilisateurId: utilisateur.id },
+        where: { utilisateurId: utilisateurConnecte.id },
         include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
       });
 
-      let utilisateursIds = new Set();
-
-      for (const b of boutiques) {
-        // Ajouter l'admin de la boutique
-        utilisateursIds.add(b.utilisateurId);
-
-        // Ajouter les vendeurs
-        if (b.Vendeurs && b.Vendeurs.length > 0) {
-          b.Vendeurs.forEach((v) => utilisateursIds.add(v.id));
+      for (const boutique of boutiques) {
+        // Ajouter tous les utilisateurs (admin + vendeurs) de cette boutique
+        idsUtilisateurs.push(boutique.utilisateurId); // admin
+        if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
+          boutique.Vendeurs.forEach((v) => idsUtilisateurs.push(v.id));
         }
       }
+    } else if (utilisateurConnecte.Role.nom.toUpperCase() === "VENDEUR") {
+      // Vendeur : récupérer tous les utilisateurs de sa boutique
+      const boutique = await Boutique.findByPk(utilisateurConnecte.boutiqueId, {
+        include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
+      });
 
-      // Filtrer les achats de tous ces utilisateurs
-      whereClause = {
-        utilisateurId: { [Op.in]: [...utilisateursIds] },
-      };
+      if (boutique) {
+        idsUtilisateurs.push(boutique.utilisateurId); // admin
+        if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
+          boutique.Vendeurs.forEach((v) => idsUtilisateurs.push(v.id));
+        }
+      }
+    } else {
+      return res.status(403).json({ message: "Rôle non autorisé." });
     }
 
     // ============================================================
-    // 🔹 SI VENDEUR : ne voir que ses achats
-    // ============================================================
-    else {
-      whereClause = {
-        utilisateurId: utilisateur.id,
-      };
-    }
-
-    // ============================================================
-    // 🔹 Récupérer les achats avec leurs relations
+    // Récupérer les achats avec leurs relations
     // ============================================================
     const achats = await Achat.findAll({
-      where: whereClause,
+      where: { utilisateurId: idsUtilisateurs },
       include: [
         {
           model: LigneAchat,
