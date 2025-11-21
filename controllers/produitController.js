@@ -3,6 +3,7 @@ const Categorie = require("../models/categorie");
 const Utilisateur = require("../models/utilisateur");
 const Caisse = require("../models/caisse");
 const Role = require("../models/role");
+const TypeMvt = require("../models/typeMvt");
 const sequelize = require("../models/sequelize");
 const jwt = require("jsonwebtoken");
 const Boutique = require("../models/boutique");
@@ -125,6 +126,27 @@ const ajouterProduit = async (req, res) => {
           }
         }
       }
+      await sequelize.transaction(async (t) => {
+        // Vérifier si les types existent déjà
+        const typesExistants = await TypeMvt.findAll({
+          where: { type: ["ENTRE", "SORTIE"] },
+          transaction: t,
+        });
+
+        const typesAAjouter = [];
+
+        if (!typesExistants.find((t) => t.type === "ENTRE")) {
+          typesAAjouter.push({ type: "ENTRE" });
+        }
+        if (!typesExistants.find((t) => t.type === "SORTIE")) {
+          typesAAjouter.push({ type: "SORTIE" });
+        }
+
+        // Créer seulement ceux qui manquent
+        if (typesAAjouter.length > 0) {
+          await TypeMvt.bulkCreate(typesAAjouter, { transaction: t });
+        }
+      });
 
       return { produit, soldeCaisseAdmin: caisseAdmin.solde_actuel };
     });
@@ -155,65 +177,61 @@ const recupererProduitsBoutique = async (req, res) => {
 
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const utilisateur = await Utilisateur.findByPk(decoded.id, {
-      include: [{ model: Role }],
+
+    const utilisateurConnecte = await Utilisateur.findByPk(decoded.id, {
+      include: [
+        { model: Role, attributes: ["nom"] },
+        { model: Boutique, as: "Boutique" },
+      ],
     });
-    if (!utilisateur)
+    if (!utilisateurConnecte)
       return res.status(404).json({ message: "Utilisateur non trouvé." });
 
-    let produits = [];
+    let idsUtilisateurs = [];
 
-    if (utilisateur.Role.nom.toUpperCase() === "ADMIN") {
-      // Récupérer tous les vendeurs de la boutique de l'admin
-      const boutique = await Boutique.findOne({
-        where: { utilisateurId: utilisateur.id },
+    if (utilisateurConnecte.Role.nom.toUpperCase() === "ADMIN") {
+      // Admin : récupérer toutes les boutiques qu'il a créées
+      const boutiques = await Boutique.findAll({
+        where: { utilisateurId: utilisateurConnecte.id },
         include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
       });
 
-      if (!boutique)
-        return res
-          .status(404)
-          .json({ message: "Aucune boutique trouvée pour cet admin." });
-
-      const utilisateurIds = [utilisateur.id]; // inclure l'admin lui-même
-      if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
-        utilisateurIds.push(...boutique.Vendeurs.map((v) => v.id));
+      for (const boutique of boutiques) {
+        // Ajouter tous les utilisateurs (admin + vendeurs) de cette boutique
+        idsUtilisateurs.push(boutique.utilisateurId); // admin
+        if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
+          boutique.Vendeurs.forEach((v) => idsUtilisateurs.push(v.id));
+        }
       }
+    } else if (utilisateurConnecte.Role.nom.toUpperCase() === "VENDEUR") {
+      // Vendeur : récupérer tous les utilisateurs de sa boutique
+      const boutique = await Boutique.findByPk(utilisateurConnecte.boutiqueId, {
+        include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
+      });
 
-      produits = await Produit.findAll({
-        where: { utilisateurId: utilisateurIds },
-        include: [
-          { model: Categorie, attributes: ["id", "nom"] },
-          { model: Boutique, attributes: ["id", "nom"] },
-          {
-            model: Utilisateur,
-            attributes: ["id", "nom"],
-            include: [{ model: Role, attributes: ["nom"] }],
-          },
-        ],
-        order: [["id", "DESC"]],
-      });
-    } else if (utilisateur.Role.nom.toUpperCase() === "VENDEUR") {
-      if (!utilisateur.boutiqueId)
-        return res
-          .status(403)
-          .json({ message: "Aucune boutique associée à ce vendeur." });
-      produits = await Produit.findAll({
-        where: { boutiqueId: utilisateur.boutiqueId },
-        include: [
-          { model: Categorie, attributes: ["id", "nom"] },
-          { model: Boutique, attributes: ["id", "nom"] },
-          {
-            model: Utilisateur,
-            attributes: ["id", "nom"],
-            include: [{ model: Role, attributes: ["nom"] }],
-          },
-        ],
-        order: [["id", "DESC"]],
-      });
+      if (boutique) {
+        idsUtilisateurs.push(boutique.utilisateurId); // admin
+        if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
+          boutique.Vendeurs.forEach((v) => idsUtilisateurs.push(v.id));
+        }
+      }
     } else {
       return res.status(403).json({ message: "Rôle non autorisé." });
     }
+
+    const produits = await Produit.findAll({
+      where: { utilisateurId: idsUtilisateurs },
+      include: [
+        { model: Categorie, attributes: ["id", "nom"] },
+        { model: Boutique, attributes: ["id", "nom"] },
+        {
+          model: Utilisateur,
+          attributes: ["id", "nom"],
+          include: [{ model: Role, attributes: ["nom"] }],
+        },
+      ],
+      order: [["id", "DESC"]],
+    });
 
     res.status(200).json(produits);
   } catch (error) {
@@ -301,7 +319,6 @@ const produitsEnAlerteStock = async (req, res) => {
   }
 };
 
-
 // ===========================
 // MODIFIER UN PRODUIT
 // ===========================
@@ -315,9 +332,10 @@ const modifierProduit = async (req, res) => {
       stock_actuel,
       stock_minimum,
       categorieId,
-      boutiqueId,
+      // boutiqueId,
     } = req.body;
 
+    // Vérification token
     const authHeader = req.headers["authorization"];
     if (!authHeader)
       return res
@@ -326,45 +344,71 @@ const modifierProduit = async (req, res) => {
 
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const utilisateur = await Utilisateur.findByPk(decoded.id);
-    if (!utilisateur || utilisateur.role !== "ADMIN")
-      return res
-        .status(403)
-        .json({ message: "Seul l’administrateur peut modifier un produit." });
 
+    // Récupération utilisateur + rôle + boutique
+    const utilisateur = await Utilisateur.findByPk(decoded.id, {
+      include: [{ model: Role }, { model: Boutique, as: "Boutique" }],
+    });
+
+    if (!utilisateur)
+      return res.status(404).json({ message: "Utilisateur non trouvé." });
+
+    // Récupération produit
     const produit = await Produit.findByPk(id);
     if (!produit)
       return res.status(404).json({ message: "Produit non trouvé." });
 
+    // Récupération boutique du produit
     const boutique = await Boutique.findByPk(produit.boutiqueId, {
       include: [{ model: Utilisateur, as: "Vendeurs" }],
     });
+
     if (!boutique)
       return res.status(404).json({ message: "Boutique non trouvée." });
 
-    const adminId = boutique.utilisateurId;
+    // Vérifier permissions
+    const estAdmin = utilisateur.Role?.nom.toLowerCase() === "admin";
+    const estVendeurBoutique =
+      utilisateur.Role?.nom.toLowerCase() === "vendeur" &&
+      utilisateur.Boutique?.id === boutique.id;
+
+    if (!estAdmin && !estVendeurBoutique) {
+      return res.status(403).json({
+        message: "Vous n'avez pas la permission de modifier ce produit.",
+      });
+    }
+
+    // Calcul nouvelle valeur stock
     const ancienneValeur = produit.prix_achat * produit.stock_actuel;
-    const nouvelleValeur =
-      (prix_achat ?? produit.prix_achat) *
-      (stock_actuel ?? produit.stock_actuel);
+
+    const newPrix = prix_achat ?? produit.prix_achat;
+    const newStock = stock_actuel ?? produit.stock_actuel;
+
+    const nouvelleValeur = newPrix * newStock;
     const difference = nouvelleValeur - ancienneValeur;
+
+    const adminId = boutique.utilisateurId;
 
     await sequelize.transaction(async (t) => {
       // Mise à jour caisse admin
-      let caisseAdmin = await getCaisseByType("VALEUR_STOCK_PUR", adminId, t);
+      let caisseAdmin = await Caisse.findOne({
+        where: { utilisateurId: adminId, type: "VALEUR_STOCK_PUR" },
+        transaction: t,
+      });
+
       if (caisseAdmin) {
         caisseAdmin.solde_actuel += difference;
         await caisseAdmin.save({ transaction: t });
       }
 
-      // Mise à jour caisses des vendeurs
+      // Mise à jour caisses vendeurs
       if (boutique.Vendeurs?.length) {
         for (const vendeur of boutique.Vendeurs) {
-          let caisseVendeur = await getCaisseByType(
-            "VALEUR_STOCK_PUR",
-            vendeur.id,
-            t
-          );
+          let caisseVendeur = await Caisse.findOne({
+            where: { utilisateurId: vendeur.id, type: "VALEUR_STOCK_PUR" },
+            transaction: t,
+          });
+
           if (caisseVendeur) {
             caisseVendeur.solde_actuel += difference;
             await caisseVendeur.save({ transaction: t });
@@ -376,9 +420,9 @@ const modifierProduit = async (req, res) => {
       await produit.update(
         {
           nom: nom ?? produit.nom,
-          prix_achat: prix_achat ?? produit.prix_achat,
+          prix_achat: newPrix,
           prix_vente: prix_vente ?? produit.prix_vente,
-          stock_actuel: stock_actuel ?? produit.stock_actuel,
+          stock_actuel: newStock,
           stock_minimum: stock_minimum ?? produit.stock_minimum,
           categorieId: categorieId ?? produit.categorieId,
         },
@@ -386,14 +430,16 @@ const modifierProduit = async (req, res) => {
       );
     });
 
-    res
-      .status(200)
-      .json({ message: "Produit mis à jour avec succès.", produit });
+    res.status(200).json({
+      message: "Produit mis à jour avec succès.",
+      produit,
+    });
   } catch (error) {
     console.error("Erreur lors de la modification du produit :", error);
-    res
-      .status(500)
-      .json({ message: "Erreur interne du serveur.", error: error.message });
+    res.status(500).json({
+      message: "Erreur interne du serveur.",
+      error: error.message,
+    });
   }
 };
 
@@ -404,6 +450,7 @@ const annulerProduit = async (req, res) => {
   try {
     const { id } = req.params;
 
+    // Vérification token
     const authHeader = req.headers["authorization"];
     if (!authHeader)
       return res
@@ -412,63 +459,90 @@ const annulerProduit = async (req, res) => {
 
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const utilisateur = await Utilisateur.findByPk(decoded.id);
-    if (!utilisateur || utilisateur.role !== "ADMIN")
-      return res
-        .status(403)
-        .json({ message: "Seul l’administrateur peut annuler un produit." });
 
+    // Récupération utilisateur + rôle + boutique
+    const utilisateur = await Utilisateur.findByPk(decoded.id, {
+      include: [{ model: Role }, { model: Boutique, as: "Boutique" }],
+    });
+
+    if (!utilisateur)
+      return res.status(404).json({ message: "Utilisateur non trouvé." });
+
+    // Récupération du produit
     const produit = await Produit.findByPk(id);
     if (!produit)
       return res.status(404).json({ message: "Produit non trouvé." });
+
     if (produit.status === "ANNULER")
       return res.status(400).json({ message: "Ce produit est déjà annulé." });
 
+    // Récupération de la boutique du produit
     const boutique = await Boutique.findByPk(produit.boutiqueId, {
       include: [{ model: Utilisateur, as: "Vendeurs" }],
     });
+
     if (!boutique)
       return res.status(404).json({ message: "Boutique non trouvée." });
 
+    // Vérification permissions (admin OU vendeur de la boutique)
+    const estAdmin = utilisateur.Role?.nom.toLowerCase() === "admin";
+    const estVendeurBoutique =
+      utilisateur.Role?.nom.toLowerCase() === "vendeur" &&
+      utilisateur.Boutique?.id === boutique.id;
+
+    if (!estAdmin && !estVendeurBoutique) {
+      return res.status(403).json({
+        message: "Vous n'avez pas la permission d'annuler ce produit.",
+      });
+    }
+
+    // Calcul valeur stock
+    const valeurStock = produit.prix_achat * produit.stock_actuel;
     const adminId = boutique.utilisateurId;
-    const ancienneValeur = produit.prix_achat * produit.stock_actuel;
 
     await sequelize.transaction(async (t) => {
-      // Caisse admin
-      let caisseAdmin = await getCaisseByType("VALEUR_STOCK_PUR", adminId, t);
+      // Mise à jour caisse admin
+      let caisseAdmin = await Caisse.findOne({
+        where: { utilisateurId: adminId, type: "VALEUR_STOCK_PUR" },
+        transaction: t,
+      });
+
       if (caisseAdmin) {
-        caisseAdmin.solde_actuel -= ancienneValeur;
+        caisseAdmin.solde_actuel -= valeurStock;
         await caisseAdmin.save({ transaction: t });
       }
 
-      // Caisses vendeurs
+      // Mise à jour caisses vendeurs
       if (boutique.Vendeurs?.length) {
         for (const vendeur of boutique.Vendeurs) {
-          let caisseVendeur = await getCaisseByType(
-            "VALEUR_STOCK_PUR",
-            vendeur.id,
-            t
-          );
+          let caisseVendeur = await Caisse.findOne({
+            where: { utilisateurId: vendeur.id, type: "VALEUR_STOCK_PUR" },
+            transaction: t,
+          });
+
           if (caisseVendeur) {
-            caisseVendeur.solde_actuel -= ancienneValeur;
+            caisseVendeur.solde_actuel -= valeurStock;
             await caisseVendeur.save({ transaction: t });
           }
         }
       }
 
+      // Mise à jour du produit
       produit.status = "ANNULER";
       produit.commentaire = `Produit annulé par ${
         utilisateur.nom
       } le ${new Date().toLocaleString("fr-FR")}`;
+
       await produit.save({ transaction: t });
     });
 
     res.status(200).json({ message: "Produit annulé avec succès." });
   } catch (error) {
     console.error("Erreur lors de l'annulation du produit :", error);
-    res
-      .status(500)
-      .json({ message: "Erreur interne du serveur.", error: error.message });
+    res.status(500).json({
+      message: "Erreur interne du serveur.",
+      error: error.message,
+    });
   }
 };
 

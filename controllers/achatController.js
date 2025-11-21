@@ -387,12 +387,6 @@ const annulerAchat = async (req, res) => {
       }
     }
 
-    const caisseUser = await getCaisseByType("CAISSE", utilisateur.id, t);
-    if (caisseUser) {
-      caisseUser.solde_actuel += total;
-      await caisseUser.save({ transaction: t });
-    }
-
     const boutique = await Boutique.findByPk(utilisateur.boutiqueId, {
       transaction: t,
     });
@@ -410,6 +404,16 @@ const annulerAchat = async (req, res) => {
         if (caisseVSP) {
           caisseVSP.solde_actuel -= total;
           await caisseVSP.save({ transaction: t });
+        }
+
+        const caisseUser = await getCaisseByType(
+          "CAISSE",
+          vendeur.id,
+          t
+        );
+        if (caisseUser) {
+          caisseUser.solde_actuel += total;
+          await caisseUser.save({ transaction: t });
         }
       }
     }
