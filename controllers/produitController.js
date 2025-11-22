@@ -67,6 +67,22 @@ const ajouterProduit = async (req, res) => {
 
     const valeurStock = prix_achat * stock_actuel;
 
+    // Empêcher d'ajouter deux produits avec le même nom dans la même catégorie
+    const produitExistant = await Produit.findOne({
+      where: {
+        nom,
+        categorieId,
+        boutiqueId,
+      },
+    });
+
+    if (produitExistant) {
+      return res.status(400).json({
+        message:
+          "Un produit avec ce nom existe déjà dans cette catégorie pour cette boutique.",
+      });
+    }
+
     const result = await sequelize.transaction(async (t) => {
       // Création produit
       const produit = await Produit.create(
