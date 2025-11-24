@@ -32,6 +32,21 @@ const ajouterProduit = async (req, res) => {
       });
     }
 
+    // 🚫 Empêcher prix_vente < prix_achat
+    if (prix_vente < prix_achat) {
+      return res.status(400).json({
+        message: "Le prix de vente ne peut pas être inférieur au prix d'achat.",
+      });
+    }
+
+    // 🚫 Empêcher stock_actuel < stock_minimum
+    if (stock_actuel < stock_minimum) {
+      return res.status(400).json({
+        message:
+          "Le stock actuel doit être supérieur ou égal au stock minimum.",
+      });
+    }
+
     // Récupération de l'utilisateur connecté
     const authHeader = req.headers["authorization"];
     if (!authHeader)
@@ -374,6 +389,25 @@ const modifierProduit = async (req, res) => {
     if (!produit)
       return res.status(404).json({ message: "Produit non trouvé." });
 
+    // 🚫 Empêcher prix_vente < prix_achat **avec les nouvelles valeurs**
+    const newPrixAchat = prix_achat ?? produit.prix_achat;
+    const newPrixVente = prix_vente ?? produit.prix_vente;
+    if (newPrixVente < newPrixAchat) {
+      return res.status(400).json({
+        message: "Le prix de vente ne peut pas être inférieur au prix d'achat.",
+      });
+    }
+
+    // 🚫 Empêcher stock_actuel < stock_minimum **avec les nouvelles valeurs**
+    const newStockActuel = stock_actuel ?? produit.stock_actuel;
+    const newStockMin = stock_minimum ?? produit.stock_minimum;
+    if (newStockActuel < newStockMin) {
+      return res.status(400).json({
+        message:
+          "Le stock actuel doit être supérieur ou égal au stock minimum.",
+      });
+    }
+
     // Récupération boutique du produit
     const boutique = await Boutique.findByPk(produit.boutiqueId, {
       include: [{ model: Utilisateur, as: "Vendeurs" }],
@@ -397,10 +431,7 @@ const modifierProduit = async (req, res) => {
     // Calcul nouvelle valeur stock
     const ancienneValeur = produit.prix_achat * produit.stock_actuel;
 
-    const newPrix = prix_achat ?? produit.prix_achat;
-    const newStock = stock_actuel ?? produit.stock_actuel;
-
-    const nouvelleValeur = newPrix * newStock;
+    const nouvelleValeur = newPrixAchat * newStockActuel;
     const difference = nouvelleValeur - ancienneValeur;
 
     const adminId = boutique.utilisateurId;
@@ -436,10 +467,10 @@ const modifierProduit = async (req, res) => {
       await produit.update(
         {
           nom: nom ?? produit.nom,
-          prix_achat: newPrix,
-          prix_vente: prix_vente ?? produit.prix_vente,
-          stock_actuel: newStock,
-          stock_minimum: stock_minimum ?? produit.stock_minimum,
+          prix_achat: newPrixAchat,
+          prix_vente: newPrixVente,
+          stock_actuel: newStockActuel,
+          stock_minimum: newStockMin,
           categorieId: categorieId ?? produit.categorieId,
         },
         { transaction: t }
@@ -458,6 +489,7 @@ const modifierProduit = async (req, res) => {
     });
   }
 };
+
 
 // ===========================
 // ANNULER UN PRODUIT

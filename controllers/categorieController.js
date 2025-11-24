@@ -165,12 +165,35 @@ const supprimerCategorie = async (req, res) => {
 
     // Vérifier si utilisateur connecté peut supprimer
     const authHeader = req.headers['authorization'];
-    const token = authHeader.split(' ')[1];
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    const utilisateurConnecte = await Utilisateur.findByPk(decoded.id, { include: Role });
+    if (!authHeader) {
+      return res.status(403).json({ message: "Accès refusé. Aucun token trouvé." });
+    }
 
-    if (utilisateurConnecte.Role.nom.toUpperCase() === 'VENDEUR' && categorie.utilisateurId !== utilisateurConnecte.id)
+    const parts = authHeader.split(' ');
+    if (parts.length !== 2) {
+      return res.status(400).json({ message: "Format de token invalide." });
+    }
+
+    const token = parts[1];
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (err) {
+      return res.status(403).json({ message: "Token invalide." });
+    }
+
+    const utilisateurConnecte = await Utilisateur.findByPk(decoded.id, { include: Role });
+    if (!utilisateurConnecte) {
+      return res.status(404).json({ message: "Utilisateur non trouvé." });
+    }
+
+    // Vérifie le rôle et la propriété de la catégorie
+    if (
+      utilisateurConnecte.Role.nom.toUpperCase() === 'VENDEUR' &&
+      categorie.utilisateurId !== utilisateurConnecte.id
+    ) {
       return res.status(403).json({ message: 'Non autorisé à supprimer cette catégorie.' });
+    }
 
     await categorie.destroy();
     res.status(200).json({ message: 'Catégorie supprimée avec succès.' });
@@ -179,6 +202,7 @@ const supprimerCategorie = async (req, res) => {
     res.status(500).json({ message: 'Erreur interne du serveur.' });
   }
 };
+
 
 module.exports = {
   ajouterCategorie,

@@ -16,9 +16,13 @@ const Credit = sequelize.define('Credit', {
     },
     clientId: {
         type: DataTypes.INTEGER,
-        allowNull: false,
+        allowNull: true, 
     },
      nomPersonneAnnuler: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
+   nom: {
     type: DataTypes.STRING,
     allowNull: true,
   },
@@ -55,7 +59,7 @@ const Credit = sequelize.define('Credit', {
         defaultValue: "SORTIE",
     },
     typeCredit: {
-        type: DataTypes.ENUM("ESPECE", "VENTE"),
+        type: DataTypes.ENUM("ESPECE", "VENTE", "ACHAT"),
         allowNull: false,
         defaultValue: "ESPECE",
     },

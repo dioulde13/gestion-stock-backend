@@ -60,7 +60,6 @@ const creerVente = async (req, res) => {
     if (!utilisateur.boutiqueId)
       throw new Error("Utilisateur non associé à une boutique.");
 
-    // Gestion client pour vente à crédit
     let clientAssocie = null;
     if (type === "CREDIT") {
       if (clientId) {
@@ -81,7 +80,6 @@ const creerVente = async (req, res) => {
       }
     }
 
-    // Calcul totalVente et totalAchat
     let totalVente = 0;
     let totalAchat = 0;
     for (const ligne of lignes) {
@@ -109,7 +107,6 @@ const creerVente = async (req, res) => {
 
     const benefice = totalVente - totalAchat;
 
-    // Création de la vente
     const vente = await Vente.create(
       {
         utilisateurId: utilisateur.id,
@@ -122,7 +119,6 @@ const creerVente = async (req, res) => {
       { transaction: t }
     );
 
-    // Création des lignes de vente et mise à jour stock
     for (const ligne of lignes) {
       const produit = await Produit.findByPk(ligne.produitId, {
         transaction: t,
@@ -142,7 +138,6 @@ const creerVente = async (req, res) => {
       await produit.save({ transaction: t });
     }
 
-    // 💰 Mise à jour des caisses
     const boutique = await Boutique.findByPk(utilisateur.boutiqueId, {
       transaction: t,
     });
@@ -208,7 +203,6 @@ const creerVente = async (req, res) => {
         utilisateur.id,
         t
       );
-      // const caisseGlobale = await getCaisseByType("CAISSE", utilisateur.id, t);
       const beneficeRealise = await getCaisseByType(
         "BENEFICE",
         utilisateur.id,
@@ -216,7 +210,6 @@ const creerVente = async (req, res) => {
       );
 
       caissePrincipale.solde_actuel += totalVente;
-      // caisseGlobale.solde_actuel += totalVente;
       beneficeRealise.solde_actuel += benefice;
 
       if (boutique) {
@@ -234,7 +227,6 @@ const creerVente = async (req, res) => {
       }
 
       await caissePrincipale.save({ transaction: t });
-      // await caisseGlobale.save({ transaction: t });
       await beneficeRealise.save({ transaction: t });
     } else if (type === "CREDIT") {
       const vendeurs = await Utilisateur.findAll({
