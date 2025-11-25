@@ -110,7 +110,6 @@ const creerVente = async (req, res) => {
     const vente = await Vente.create(
       {
         utilisateurId: utilisateur.id,
-        boutiqueId: utilisateur.boutiqueId,
         clientId: clientAssocie ? clientAssocie.id : null,
         total: totalVente,
         type,

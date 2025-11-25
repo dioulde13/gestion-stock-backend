@@ -21,30 +21,44 @@ const ajouterCategorie = async (req, res) => {
     const { nom } = req.body;
     if (!nom) return res.status(400).json({ message: 'Le nom de la catégorie est obligatoire.' });
 
-    let utilisateurId, boutiqueId;
+    // 👉 Normalisation du nom pour éviter "Test", " test ", "TEST"
+    const nomNormalise = nom.trim().toLowerCase();
+
+    let utilisateurId;
 
     if (utilisateurConnecte.Role.nom.toUpperCase() === 'ADMIN') {
-      // Admin : peut créer pour lui-même
       utilisateurId = utilisateurConnecte.id;
-      boutiqueId = null;
     } else if (utilisateurConnecte.Role.nom.toUpperCase() === 'VENDEUR') {
-      // Vendeur : crée pour sa boutique
       if (!utilisateurConnecte.boutiqueId)
         return res.status(403).json({ message: 'Aucune boutique associée à ce vendeur.' });
 
-      utilisateurId = utilisateurConnecte.id; // Le vendeur est le créateur
-      boutiqueId = utilisateurConnecte.boutiqueId;
+      utilisateurId = utilisateurConnecte.id;
     } else {
       return res.status(403).json({ message: 'Rôle non autorisé.' });
     }
 
-    const categorie = await Categorie.create({ nom, utilisateurId, boutiqueId });
+    // ⚠️ Vérifier si une catégorie existe déjà avec ce nom pour ce même utilisateur
+    const categorieExistante = await Categorie.findOne({
+      where: {
+        utilisateurId,
+        nom: nomNormalise,
+      },
+    });
+
+    if (categorieExistante) {
+      return res.status(400).json({ message: 'Une catégorie avec ce nom existe déjà.' });
+    }
+
+    // Création de la catégorie
+    const categorie = await Categorie.create({ nom: nomNormalise, utilisateurId });
+
     res.status(201).json({ message: 'Catégorie créée avec succès.', categorie });
   } catch (error) {
     console.error('Erreur lors de la création de la catégorie :', error);
     res.status(500).json({ message: 'Erreur interne du serveur.' });
   }
 };
+
 
 // Récupérer les catégories
 const recupererCategories = async (req, res) => {
@@ -67,7 +81,12 @@ const recupererCategories = async (req, res) => {
       // Admin : récupérer toutes les boutiques qu'il a créées
       const boutiques = await Boutique.findAll({
         where: { utilisateurId: utilisateurConnecte.id },
-        include: [{ model: Utilisateur, as: 'Vendeurs', attributes: ['id'] }],
+        include: [
+          { 
+            model: Utilisateur, as: 'Vendeurs', attributes: ['id'],
+            include: [{ model: Boutique, as: "Boutique" }],
+          },
+        ],
       });
 
       for (const boutique of boutiques) {

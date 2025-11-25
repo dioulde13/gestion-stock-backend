@@ -62,7 +62,7 @@ const annulerAchat = async (req, res) => {
       return res.status(400).json({ message: "Achat déjà annulé." });
 
     const total = achat.total;
-    const type = achat.type; // 🔥 Correction : on récupère réellement le type (ACHAT ou CREDIT)
+    const type = achat.type; // ACHAT ou CREDIT
 
     // ================================
     // 🔹 Restauration du stock
@@ -83,122 +83,96 @@ const annulerAchat = async (req, res) => {
     }
 
     // ================================
-    // 🔹 Gestion des caisses
+    // 🔹 Mise à jour des caisses
     // ================================
     const boutique = await Boutique.findByPk(utilisateur.boutiqueId, {
       transaction: t,
     });
-    const admin = await Utilisateur.findByPk(boutique.utilisateurId, {
-      transaction: t,
-    });
 
-    const vendeurs = await Utilisateur.findAll({
-      where: { boutiqueId: boutique.id },
-      transaction: t,
-    });
+    if (boutique) {
+      const vendeurs = await Utilisateur.findAll({
+        where: { boutiqueId: boutique.id },
+        transaction: t,
+      });
 
-    // =====================================================
-    // 🔹 Si l’achat est un ACHAT simple (pas crédit)
-    // =====================================================
-    if (type === "ACHAT") {
-      // ⚠️ l’achat avait diminué les caisses vendeurs → on remet
-      await Promise.all(
-        vendeurs.map(async (vendeur) => {
-          const caisse = await getCaisseByType("CAISSE", vendeur.id, t);
-          const valeurStock = await getCaisseByType(
-            "VALEUR_STOCK_PUR",
-            vendeur.id,
-            t
-          );
-
-          if (caisse) {
-            caisse.solde_actuel += total; // restitution du montant
-            await caisse.save({ transaction: t });
-          }
-
-          if (valeurStock) {
-            valeurStock.solde_actuel -= total; // diminution valeur stock
-            await valeurStock.save({ transaction: t });
-          }
-        })
-      );
-
-      // 🔹 Gestion admin (si il n’est pas vendeur)
-      if (admin && !vendeurs.some((v) => v.id === admin.id)) {
-        const caisseAdmin = await getCaisseByType("CAISSE", admin.id, t);
-        const valeurStockAdmin = await getCaisseByType(
+      // ===== 🔥 Correction ici : CREDIT_ACHAT pour vendeurs ajouté =====
+      for (const vendeur of vendeurs) {
+        const caisseVSP = await getCaisseByType(
           "VALEUR_STOCK_PUR",
-          admin.id,
+          vendeur.id,
           t
         );
 
-        if (caisseAdmin) {
-          caisseAdmin.solde_actuel += total;
-          await caisseAdmin.save({ transaction: t });
+        // 🔹 Si l'achat était un ACHAT normal
+        if (type === "ACHAT") {
+          const caisseUser = await getCaisseByType("CAISSE", vendeur.id, t);
+          if (caisseUser) {
+            caisseUser.solde_actuel += total;
+            await caisseUser.save({ transaction: t });
+          }
         }
 
-        if (valeurStockAdmin) {
-          valeurStockAdmin.solde_actuel -= total;
-          await valeurStockAdmin.save({ transaction: t });
-        }
-      }
-    }
-
-    // =====================================================
-    // 🔹 Si l’achat était un ACHAT à CRÉDIT
-    // =====================================================
-    else if (type === "CREDIT") {
-      // 🔹 Les vendeurs avaient reçu du CREDIT_ACHAT → on retire
-      await Promise.all(
-        vendeurs.map(async (vendeur) => {
+        // 🔥 🔥 🔥 Correction : si achat à crédit → diminuer CREDIT_ACHAT des vendeurs
+        if (type === "CREDIT") {
           const caisseCredit = await getCaisseByType(
             "CREDIT_ACHAT",
             vendeur.id,
             t
           );
-          const valeurStock = await getCaisseByType(
-            "VALEUR_STOCK_PUR",
-            vendeur.id,
-            t
-          );
-
           if (caisseCredit) {
             caisseCredit.solde_actuel -= total;
             await caisseCredit.save({ transaction: t });
           }
-
-          if (valeurStock) {
-            valeurStock.solde_actuel -= total;
-            await valeurStock.save({ transaction: t });
-          }
-        })
-      );
-
-      // 🔹 Admin si non vendeur
-      if (admin && !vendeurs.some((v) => v.id === admin.id)) {
-        const caisseCreditAdmin = await getCaisseByType(
-          "CREDIT_ACHAT",
-          admin.id,
-          t
-        );
-        const valeurStockAdmin = await getCaisseByType(
-          "VALEUR_STOCK_PUR",
-          admin.id,
-          t
-        );
-
-        if (caisseCreditAdmin) {
-          caisseCreditAdmin.solde_actuel -= total;
-          await caisseCreditAdmin.save({ transaction: t });
         }
 
-        if (valeurStockAdmin) {
-          valeurStockAdmin.solde_actuel -= total;
-          await valeurStockAdmin.save({ transaction: t });
+        // 🔹 Valeur stock pur (commun)
+        if (caisseVSP) {
+          caisseVSP.solde_actuel -= total;
+          await caisseVSP.save({ transaction: t });
         }
       }
 
-      // 🔹 Annuler le crédit correspondant
+      // ================================
+      // 🔹 Mise à jour pour l'admin
+      // ================================
+      if (boutique.utilisateurId) {
+        const admin = await Utilisateur.findByPk(boutique.utilisateurId, {
+          transaction: t,
+        });
+
+        if (admin && !vendeurs.some((v) => v.id === admin.id)) {
+          const caisseAdminVSP = await getCaisseByType(
+            "VALEUR_STOCK_PUR",
+            admin.id,
+            t
+          );
+
+          if (type === "ACHAT") {
+            if (caisseAdminVSP) {
+              caisseAdminVSP.solde_actuel -= total;
+              await caisseAdminVSP.save({ transaction: t });
+            }
+          } else if (type === "CREDIT") {
+            const caisseCredit = await getCaisseByType(
+              "CREDIT_ACHAT",
+              admin.id,
+              t
+            );
+            if (caisseAdminVSP && caisseCredit) {
+              caisseAdminVSP.solde_actuel -= total;
+              caisseCredit.solde_actuel -= total;
+              await caisseAdminVSP.save({ transaction: t });
+              await caisseCredit.save({ transaction: t });
+            }
+          }
+        }
+      }
+    }
+
+    // ================================
+    // 🔹 Annuler le crédit correspondant (type CREDIT)
+    // ================================
+    if (type === "CREDIT") {
       const credit = await Credit.findOne({
         where: {
           typeCredit: "ACHAT",
@@ -383,17 +357,18 @@ const creerAchat = async (req, res) => {
             admin.id,
             t
           );
+
+           const caisseAdmin = await getCaisseByType(
+            "CAISSE",
+            admin.id,
+            t
+          );
           if (type === "ACHAT") {
-            // const caisseAdminPrincipal = await getCaisseByType(
-            //   "CAISSE",
-            //   admin.id,
-            //   t
-            // );
-            if (caisseAdminVSP) {
+            if (caisseAdminVSP && caisseAdmin) {
               caisseAdminVSP.solde_actuel += totalAchat;
-              // caisseAdminPrincipal.solde_actuel += totalVente;
               await caisseAdminVSP.save({ transaction: t });
-              // await caisseAdminPrincipal.save({ transaction: t });
+              caisseAdmin.solde_actuel -= totalAchat;
+              await caisseAdmin.save({ transaction: t });
             }
           } else if (type === "CREDIT") {
             const caisseCredit = await getCaisseByType(
