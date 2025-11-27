@@ -50,6 +50,7 @@ const boutiqueRoute = require("./routes/boutiqueRoutes");
 const app = express();
 const server = http.createServer(app);
 
+
 // Configuration CORS
 const corsOptions = {
   origin: "*",  // Pour dev : autorise toutes les origines. En production, remplacer par le(s) domaine(s) de ton front. :contentReference[oaicite:0]{index=0}
