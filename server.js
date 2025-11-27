@@ -1,15 +1,15 @@
-// server.js
-
 const express = require("express");
 const http = require("http");
-const cors = require("cors");
 require("dotenv").config();
 const { Server } = require("socket.io");
-const mysql = require("mysql2/promise");
+const mysql = require("mysql2/promise"); // ✅ Importation correcte
+const bodyParser = require("body-parser");
 const dbConfig = require("./config/dbConfig");
 const sequelize = require("./models/sequelize");
+const cors = require("cors");
 
-// Charger les modèles
+//sussuusus
+// Charger tes modèles
 require("./models/produit");
 require("./models/notification");
 require("./models/notificationUser");
@@ -27,7 +27,6 @@ require("./models/caisse");
 require("./models/boutique");
 require("./models/versement");
 
-// Import des routes
 const produitRoute = require("./routes/produitRoute");
 const versementRoute = require("./routes/versementRoute");
 const categorieRoutes = require("./routes/categorieRoutes");
@@ -49,34 +48,37 @@ const boutiqueRoute = require("./routes/boutiqueRoutes");
 
 const app = express();
 const server = http.createServer(app);
-
-// --- CORS configuration ---
-const corsOptions = {
-  origin: "*",  // Pour dev : toutes origines. En production, mettre l'URL de ton front. :contentReference[oaicite:0]{index=0}
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],  // Méthodes autorisées :contentReference[oaicite:1]{index=1}
-  allowedHeaders: ["Content-Type", "Authorization"],  // Headers autorisés :contentReference[oaicite:2]{index=2}
-  optionsSuccessStatus: 200 // Pour que le preflight OPTIONS retourne 200 OK (et pas 204, parfois problématique) :contentReference[oaicite:3]{index=3}
-};
-
-// Appliquer CORS globalement
-app.use(cors(corsOptions));
-// Gérer explicitement les requêtes OPTIONS (preflight) pour tous les chemins
-app.options('*', cors(corsOptions));
-
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
-
-// --- Socket.IO config ---
 const io = new Server(server, {
   cors: {
-    origin: "*", // ou le domaine de ton front en prod :contentReference[oaicite:4]{index=4}
+    origin: "https://stock-frontend-phi.vercel.app", // à limiter en production
     methods: ["GET", "POST"],
-    // allowedHeaders, credentials etc. si besoin
-  }
+  },
 });
+
+// Permettre accès à io dans tes routes/controllers
 app.set("io", io);
 
-// --- Définition des routes ---
+app.use(bodyParser.json());
+
+app.use(
+  cors({
+    origin: "https://stock-frontend-phi.vercel.app", // Adapter si besoin pour Angular
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+
+// app.use(
+//   cors({
+//     origin: "*",
+//     methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+//     allowedHeaders: ["Content-Type", "Authorization"],
+//   })
+// );
+
+// Tes routes
+
 app.use("/api/versement", versementRoute);
 app.use("/api/boutique", boutiqueRoute);
 app.use("/api/caisse", caisseRoute);
@@ -96,34 +98,19 @@ app.use("/api/categorie", categorieRoutes);
 app.use("/api/utilisateur", utilisateurRoutes);
 app.use("/api/notification", notificationRoute);
 
+app.use(express.urlencoded({ extended: true }));
+
 app.get("/", (req, res) => {
   res.send("Bienvenue sur l'API de gestion de stock !");
 });
 
-// Endpoint test de connexion à la base
-app.get("/check-db-connection", async (req, res) => {
-  try {
-    const connection = await mysql.createConnection(dbConfig);
-    await connection.ping();
-    await connection.end();
-    res.json({ success: true, message: "Connexion à la base de données réussie" });
-  } catch (error) {
-    console.error("Erreur connexion MySQL :", error);
-    res.status(500).json({ success: false, message: "Erreur de connexion", error: error.message });
-  }
-});
-
-// Synchronisation Sequelize
-sequelize
-  .sync({ alter: true })
-  .then(() => console.log("Tables créées avec succès"))
-  .catch((error) => console.error("Erreur création tables :", error));
-
-// Événements Socket.IO
+// Événements de connexion Socket.IO
 io.on("connection", (socket) => {
   console.log("Client connecté via Socket.IO, id:", socket.id);
 
+  // Optionnel : le client peut s’enregistrer sous un utilisateur
   socket.on("registerUser", (userId) => {
+    console.log("Client rejoint la room user_" + userId);
     socket.join("user_" + userId);
   });
 
@@ -132,9 +119,58 @@ io.on("connection", (socket) => {
   });
 });
 
+app.get("/check-db-connection", async (req, res) => {
+  try {
+    const connection = await mysql.createConnection(dbConfig);
+    await connection.ping(); // Vérifie la connexion
+    await connection.end();
 
-// Démarrage du serveur
+    res.json({
+      success: true,
+      message: "Connexion à la base de données réussie",
+    });
+  } catch (error) {
+    console.error("Erreur connexion MySQL :", error);
+    res.status(500).json({
+      success: false,
+      message: "Erreur de connexion",
+      error: error.message,
+    });
+  }
+});
+
+// (async () => {
+//   try {
+//     // Synchroniser les modèles (tables) si besoin
+//     await sequelize.sync({ alter: true });  // ou { force: false } selon vos besoins
+//     console.log("🔄 Synchronisation des tables terminée");
+//     app.listen(PORT, () => {
+//       console.log(`🚀 Serveur démarré sur http://localhost:${PORT}`);
+//     });
+//   } catch (error) {
+//     console.error("Erreur lors de la synchronisation / démarrage :", error);
+//   }
+// })();
+
+// Sequelize sync
+sequelize
+  .sync({ alter: true }) // Remettre  alter: true si besoin
+  .then(() => console.log("Tables créées avec succès"))
+  .catch((error) => console.error("Erreur création tables :", error));
+
+// Port Railway ou local
+// const PORT = process.env.PORT || 3000;
+// app.listen(PORT, () => {
+//   console.log(`🚀 Serveur démarré sur http://localhost:${PORT}`);
+// });
+
+// Démarrer Socket.IO + Express via server.listen()
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 Serveur démarré sur http://localhost:${PORT}`);
 });
+
+// const PORT = process.env.PORT || 3000;
+// server.listen(PORT, () => {
+//   console.log(`Serveur démarré sur http://localhost:${PORT}`);
+// });
