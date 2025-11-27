@@ -38,9 +38,9 @@ const getUserFromToken = async (req, res) => {
    ✅ 1. Créer un versement (par un vendeur)
 ============================================================ */
 const ajouterVersement = async (req, res) => {
-  const { montant, description } = req.body;
+  const { montant, description, type } = req.body;
 
-  if (!montant || !description) {
+  if (!montant || !description || !type) {
     return res
       .status(400)
       .json({ message: "Tous les champs sont obligatoires." });
@@ -63,6 +63,7 @@ const ajouterVersement = async (req, res) => {
           boutiqueId: utilisateur.boutiqueId,
           montant,
           description,
+          type,
           status: "EN_ATTENTE",
         },
         { transaction: t }

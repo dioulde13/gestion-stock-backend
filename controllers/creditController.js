@@ -51,6 +51,23 @@ const annulerCredit = async (req, res) => {
         return res.status(404).json({ message: "Crédit non trouvé." });
       }
 
+      if (credit.typeCredit === "ACHAT") {
+        return res
+          .status(400)
+          .json({
+            message:
+              "Impossible d’annuler ce crédit : il correspond à un achat. Utilisez la section « Achat » pour gérer ce type.",
+          });
+      }
+      if (credit.typeCredit === "VENTE") {
+        return res
+          .status(400)
+          .json({
+            message:
+              "Impossible d’annuler ce crédit : il correspond à une vente. Veuillez passer par la section « Vente ».",
+          });
+      }
+
       if (credit.status === "PAYER") {
         return res.status(400).json({ message: "Ce crédit est déjà payer." });
       }
