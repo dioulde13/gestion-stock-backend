@@ -50,34 +50,33 @@ const boutiqueRoute = require("./routes/boutiqueRoutes");
 const app = express();
 const server = http.createServer(app);
 
-
-// Configuration CORS
+// --- CORS configuration ---
 const corsOptions = {
-  origin: "*",  // Pour dev : autorise toutes les origines. En production, remplacer par le(s) domaine(s) de ton front. :contentReference[oaicite:0]{index=0}
-  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],  // Autorise les méthodes utilisées. :contentReference[oaicite:1]{index=1}
-  allowedHeaders: ["Content-Type", "Authorization"], // Autorise les headers fréquents (Content-Type, token...) :contentReference[oaicite:2]{index=2}
-  optionsSuccessStatus: 200 // pour que les requêtes OPTIONS “preflight” réussissent convenablement — utile pour certains navigateurs. :contentReference[oaicite:3]{index=3}
+  origin: "*",  // Pour dev : toutes origines. En production, mettre l'URL de ton front. :contentReference[oaicite:0]{index=0}
+  methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],  // Méthodes autorisées :contentReference[oaicite:1]{index=1}
+  allowedHeaders: ["Content-Type", "Authorization"],  // Headers autorisés :contentReference[oaicite:2]{index=2}
+  optionsSuccessStatus: 200 // Pour que le preflight OPTIONS retourne 200 OK (et pas 204, parfois problématique) :contentReference[oaicite:3]{index=3}
 };
 
 // Appliquer CORS globalement
 app.use(cors(corsOptions));
-
-// Assurer la gestion des requêtes OPTIONS pour tous les chemins — pré-flight CORS :contentReference[oaicite:4]{index=4}
+// Gérer explicitement les requêtes OPTIONS (preflight) pour tous les chemins
 app.options('*', cors(corsOptions));
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Config Socket.IO
+// --- Socket.IO config ---
 const io = new Server(server, {
   cors: {
-    origin: "*", // ou domaine de ton front
-    methods: ["GET", "POST"]
+    origin: "*", // ou le domaine de ton front en prod :contentReference[oaicite:4]{index=4}
+    methods: ["GET", "POST"],
+    // allowedHeaders, credentials etc. si besoin
   }
 });
 app.set("io", io);
 
-// Définition des routes
+// --- Définition des routes ---
 app.use("/api/versement", versementRoute);
 app.use("/api/boutique", boutiqueRoute);
 app.use("/api/caisse", caisseRoute);
@@ -101,6 +100,7 @@ app.get("/", (req, res) => {
   res.send("Bienvenue sur l'API de gestion de stock !");
 });
 
+// Endpoint test de connexion à la base
 app.get("/check-db-connection", async (req, res) => {
   try {
     const connection = await mysql.createConnection(dbConfig);
@@ -119,12 +119,11 @@ sequelize
   .then(() => console.log("Tables créées avec succès"))
   .catch((error) => console.error("Erreur création tables :", error));
 
-// WebSocket / Socket.IO events
+// Événements Socket.IO
 io.on("connection", (socket) => {
   console.log("Client connecté via Socket.IO, id:", socket.id);
 
   socket.on("registerUser", (userId) => {
-    console.log("Client rejoint la room user_" + userId);
     socket.join("user_" + userId);
   });
 
