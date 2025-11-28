@@ -100,28 +100,15 @@ const validerRechargementCaisse = async (req, res) => {
       return res.status(404).json({ message: "Rechargement caisse non trouvé." });
     }
 
-    if (rechargementCaisse.status === "VALIDÉ") {
+    if (rechargementCaisse.status === "VALIDE") {
       await t.rollback();
       return res.status(400).json({ message: "Déjà validé." });
     }
 
-    if (rechargementCaisse.status === "REJETÉ") {
+    if (rechargementCaisse.status === "REJETE") {
       await t.rollback();
       return res.status(400).json({ message: "Déjà rejeté." });
     }
-
-    // const boutique = await Boutique.findByPk(utilisateur.boutiqueId, {
-    //   transaction: t,
-    // });
-
-    // const vendeur = await Utilisateur.findByPk(utilisateur.utilisateurId, {
-    //   transaction: t,
-    // });
-
-    // if (!vendeur) {
-    //   await t.rollback();
-    //   return res.status(404).json({ message: "Vendeur introuvable." });
-    // }
 
     const boutique = await Boutique.findByPk(utilisateur.boutiqueId, { transaction: t });
 
@@ -143,7 +130,7 @@ const validerRechargementCaisse = async (req, res) => {
       }
     }
 
-    rechargementCaisse.status = "VALIDÉ";
+    rechargementCaisse.status = "VALIDE";
     await rechargementCaisse.save({ transaction: t });
 
     await t.commit();
@@ -185,19 +172,19 @@ const rejeterRechargement = async (req, res) => {
       return res.status(404).json({ message: "Rechargement non trouvé." });
     }
 
-    if (rechargementCaisse.status === "REJETÉ") {
+    if (rechargementCaisse.status === "REJETE") {
       await t.rollback();
       return res.status(400).json({ message: "Déjà rejeté." });
     }
 
-    if (rechargementCaisse.status === "VALIDÉ") {
+    if (rechargementCaisse.status === "VALIDE") {
       await t.rollback();
       return res.status(400).json({
         message: "Impossible de rejeter un rechargement déjà validé."
       });
     }
 
-    rechargementCaisse.status = "REJETÉ";
+    rechargementCaisse.status = "REJETE";
     await rechargementCaisse.save({ transaction: t });
 
     await t.commit();

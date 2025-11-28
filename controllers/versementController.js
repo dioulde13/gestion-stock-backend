@@ -105,14 +105,13 @@ const validerVersement = async (req, res) => {
     }
 
     // 🔒 Empêcher modifications
-    if (versement.status === "VALIDÉ") {
+    if (versement.status === "VALIDE") {
       await t.rollback();
       return res.status(400).json({
         message: "Ce versement a déjà été VALIDÉ et ne peut pas être rejeté.",
       });
     }
-
-    if (versement.status === "REJETÉ") {
+    if (versement.status === "REJETE") {
       await t.rollback();
       return res.status(400).json({
         message: "Ce versement a déjà été REJETÉ et ne peut pas être validé.",
@@ -179,7 +178,7 @@ const validerVersement = async (req, res) => {
     }
 
     // 🟢 6) Changer le statut du versement
-    versement.status = "VALIDÉ";
+    versement.status = "VALIDE";
     await versement.save({ transaction: t });
 
     // 🔐 Commit final
@@ -225,7 +224,7 @@ const rejeterVersement = async (req, res) => {
     }
 
     // Empêcher toute modification si déjà rejeté
-    if (versement.status === "REJETÉ") {
+    if (versement.status === "REJETE") {
       await t.rollback();
       return res.status(400).json({
         message: "Ce versement est déjà REJETÉ et ne peut pas être traité.",
@@ -233,7 +232,7 @@ const rejeterVersement = async (req, res) => {
     }
 
     // Empêcher de rejeter un versement déjà validé si tu veux stricte interdiction
-    if (versement.status === "VALIDÉ") {
+    if (versement.status === "VALIDE") {
       await t.rollback();
       return res.status(400).json({
         message: "Ce versement est déjà VALIDÉ et ne peut pas être rejeté.",
@@ -252,13 +251,13 @@ const rejeterVersement = async (req, res) => {
     }
 
     // Si le versement était VALIDÉ, restituer le montant au vendeur
-    if (versement.status === "VALIDÉ") {
+    if (versement.status === "VALIDE") {
       caisseVendeur.solde_actuel += versement.montant;
       await caisseVendeur.save({ transaction: t });
     }
 
     // Mettre à jour le statut en REJETÉ
-    versement.status = "REJETÉ";
+    versement.status = "REJETE";
     await versement.save({ transaction: t });
 
     await t.commit();
