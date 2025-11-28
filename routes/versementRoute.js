@@ -6,7 +6,5 @@ router.post('/create', versementController.ajouterVersement);
 router.get('/liste', versementController.recupererVersement);
 router.put('/valider/:id', versementController.validerVersement);
 router.put('/rejeter/:id', versementController.rejeterVersement);
-// router.delete('/supprimer/:id', depenseController.supprimerDepense);
-// router.delete('/annuler/:id', depenseController.annulerDepense);
 
 module.exports = router;

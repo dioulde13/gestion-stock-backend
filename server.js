@@ -26,9 +26,11 @@ require("./models/payementCredit");
 require("./models/caisse");
 require("./models/boutique");
 require("./models/versement");
+require("./models/rechargementCaisse");
 
 const produitRoute = require("./routes/produitRoute");
 const versementRoute = require("./routes/versementRoute");
+const rechargementCaisseRoutes = require("./routes/rechargementCaisseRoute");
 const categorieRoutes = require("./routes/categorieRoutes");
 const utilisateurRoutes = require("./routes/utilisateurRoutes");
 const roleRoutes = require("./routes/roleRoutes");
@@ -50,7 +52,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: ["https://stock-frontend-phi.vercel.app" , "http://localhost:3001"], // à limiter en production
+    origin: ["https://stock-frontend-phi.vercel.app", "http://localhost:3001"], // à limiter en production
     methods: ["GET", "POST"],
   },
 });
@@ -68,7 +70,6 @@ app.use(
   })
 );
 
-
 // app.use(
 //   cors({
 //     origin: "*",
@@ -79,6 +80,7 @@ app.use(
 
 // Tes routes
 
+app.use("/api/rechargement", rechargementCaisseRoutes);
 app.use("/api/versement", versementRoute);
 app.use("/api/boutique", boutiqueRoute);
 app.use("/api/caisse", caisseRoute);
