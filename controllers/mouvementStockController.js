@@ -262,22 +262,49 @@ const recupererMouvementsStock = async (req, res) => {
 
     if (produitId) where.produitId = produitId;
 
-    if (utilisateur.Role.nom === "VENDEUR") {
-      if (!utilisateur.boutiqueId)
-        return res.status(404).json({ message: "Aucune boutique associée." });
-      where.boutiqueId = utilisateur.boutiqueId;
-      where.utilisateurId = utilisateur.id;
-    } else if (utilisateur.Role.nom === "ADMIN") {
+    const utilisateurConnecte = await Utilisateur.findByPk(utilisateur.id, {
+      include: [
+        { model: Role, attributes: ["nom"] },
+        { model: Boutique, as: "Boutique" },
+      ],
+    });
+    if (!utilisateurConnecte)
+      return res.status(404).json({ message: "Utilisateur non trouvé." });
+
+    let idsUtilisateurs = [];
+
+    if (utilisateurConnecte.Role.nom.toUpperCase() === "ADMIN") {
+      // Admin : récupérer toutes les boutiques qu'il a créées
       const boutiques = await Boutique.findAll({
-        where: { utilisateurId: utilisateur.id },
-        attributes: ["id"],
+        where: { utilisateurId: utilisateurConnecte.id },
+        include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
       });
-      const boutiqueIds = boutiques.map((b) => b.id);
-      where.boutiqueId = { [Op.in]: boutiqueIds };
+
+      for (const boutique of boutiques) {
+        // Ajouter tous les utilisateurs (admin + vendeurs) de cette boutique
+        idsUtilisateurs.push(boutique.utilisateurId); // admin
+        if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
+          boutique.Vendeurs.forEach((v) => idsUtilisateurs.push(v.id));
+        }
+      }
+    } else if (utilisateurConnecte.Role.nom.toUpperCase() === "VENDEUR") {
+      // Vendeur : récupérer tous les utilisateurs de sa boutique
+      const boutique = await Boutique.findByPk(utilisateurConnecte.boutiqueId, {
+        include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
+      });
+
+      if (boutique) {
+        idsUtilisateurs.push(boutique.utilisateurId); // admin
+        if (boutique.Vendeurs && boutique.Vendeurs.length > 0) {
+          boutique.Vendeurs.forEach((v) => idsUtilisateurs.push(v.id));
+        }
+      }
+    } else {
+      return res.status(403).json({ message: "Rôle non autorisé." });
     }
 
     const mouvements = await MouvementStock.findAll({
-      where,
+      where: { utilisateurId: idsUtilisateurs },
       order: [["date", "DESC"]],
       include: [
         { model: Produit, attributes: ["id", "nom", "boutiqueId"] },
@@ -392,6 +419,7 @@ const annulerMouvementStock = async (req, res) => {
       }
 
       mouvement.status = "ANNULER";
+      mouvement.nomPersonneAnnuler = utilisateur.nom;
       mouvement.commentaire = `Mouvement annulé par ${
         utilisateur.nom
       } le ${new Date().toLocaleString()}`;
