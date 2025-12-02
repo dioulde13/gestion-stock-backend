@@ -46,16 +46,16 @@ const annulerPayementCredit = async (req, res) => {
     });
 
     if (!payement) {
-      throw new Error("Paiement non trouvé.");
+      return res.status(400).json({ message: "Paiement non trouvé." });
     }
 
     if (payement.status === "ANNULER") {
-      throw new Error("Ce paiement est déjà annulé.");
+      return res.status(400).json({ message: "Ce paiement est déjà annulé." });
     }
 
     const credit = payement.Credit;
     if (!credit) {
-      throw new Error("Crédit associé introuvable.");
+      return res.status(400).json({ message: "Crédit associé introuvable." });
     }
 
     const boutique = await Boutique.findByPk(utilisateur.boutiqueId, {
@@ -82,6 +82,15 @@ const annulerPayementCredit = async (req, res) => {
       boutique.utilisateurId,
       t
     );
+
+     let caisseCreditAchatAdminBoutique = null;
+    if (boutique && boutique.utilisateurId) {
+      caisseCreditAchatAdminBoutique = await getCaisseByType(
+        "CREDIT_ACHAT",
+        boutique.utilisateurId,
+        t
+      );
+    }
 
     const montant = payement.montant;
 
@@ -142,30 +151,60 @@ const annulerPayementCredit = async (req, res) => {
         await caisseAdminBoutique.save({ transaction: t });
       }
     } else if (credit.type === "ENTRE") {
-      const vendeurs = await Utilisateur.findAll({
-        where: { boutiqueId: boutique.id },
-        transaction: t,
-      });
+      if (credit.typeCredit === "ACHAT") {
+        const vendeurs = await Utilisateur.findAll({
+          where: { boutiqueId: boutique.id },
+          transaction: t,
+        });
+        for (const vendeur of vendeurs) {
+          const caisseVendeur = await getCaisseByType("CAISSE", vendeur.id, t);
+          if (caisseVendeur) {
+            caisseVendeur.solde_actuel += montant;
+            await caisseVendeur.save({ transaction: t });
+          }
+          const caisseCreditAchatUtilisateur = await getCaisseByType(
+            "CREDIT_ACHAT",
+            vendeur.id,
+            t
+          );
+          if (caisseCreditAchatUtilisateur) {
+            caisseCreditAchatUtilisateur.solde_actuel += montant;
+            await caisseCreditAchatUtilisateur.save({ transaction: t });
+          }
+        }
+        caisseCreditAchatAdminBoutique.solde_actuel += montant;
+        caisseAdminBoutique.solde_actuel += montant;
+        await Promise.all([
+          caisseCreditAchatAdminBoutique.save({ transaction: t }),
+          caisseAdminBoutique.save({ transaction: t }),
+        ]);
 
-      for (const vendeur of vendeurs) {
-        const caisseVendeurs = await getCaisseByType("CAISSE", vendeur.id, t);
-        const caisseCreditEspeceEntreUtilisateur = await getCaisseByType(
-          "CREDIT_ESPECE_ENTRE",
-          vendeur.id,
-          t
-        );
+      } else {
+        const vendeurs = await Utilisateur.findAll({
+          where: { boutiqueId: boutique.id },
+          transaction: t,
+        });
 
-        caisseVendeurs.solde_actuel -= montant;
-        await caisseVendeurs.save({ transaction: t });
+        for (const vendeur of vendeurs) {
+          const caisseVendeurs = await getCaisseByType("CAISSE", vendeur.id, t);
+          const caisseCreditEspeceEntreUtilisateur = await getCaisseByType(
+            "CREDIT_ESPECE_ENTRE",
+            vendeur.id,
+            t
+          );
 
-        caisseCreditEspeceEntreUtilisateur.solde_actuel += montant;
-        await caisseCreditEspeceEntreUtilisateur.save({ transaction: t });
+          caisseVendeurs.solde_actuel -= montant;
+          await caisseVendeurs.save({ transaction: t });
+
+          caisseCreditEspeceEntreUtilisateur.solde_actuel += montant;
+          await caisseCreditEspeceEntreUtilisateur.save({ transaction: t });
+        }
+
+        caisseCreditEspeceEntreAdminBoutique.solde_actuel += montant;
+        caisseAdminBoutique.solde_actuel += montant;
+        await caisseCreditEspeceEntreAdminBoutique.save({ transaction: t });
+        await caisseAdminBoutique.save({ transaction: t });
       }
-
-      caisseCreditEspeceEntreAdminBoutique.solde_actuel += montant;
-      caisseAdminBoutique.solde_actuel += montant;
-      await caisseCreditEspeceEntreAdminBoutique.save({ transaction: t });
-      await caisseAdminBoutique.save({ transaction: t });
     }
 
     // 📉 Mise à jour du crédit
@@ -218,7 +257,9 @@ const ajouterPayementCredit = async (req, res) => {
   try {
     const { reference, montant } = req.body;
     if (!reference || !montant) {
-      throw new Error("Tous les champs obligatoires doivent être remplis.");
+      return res.status(400).json({
+        message: "Tous les champs obligatoires doivent être remplis.",
+      });
     }
 
     // 🔍 Recherche du crédit correspondant
@@ -226,7 +267,11 @@ const ajouterPayementCredit = async (req, res) => {
       where: { reference },
       transaction: t,
     });
-    if (!credit) throw new Error("Crédit non trouvé pour cette référence.");
+    if (!credit) {
+      return res
+        .status(400)
+        .json({ message: "Crédit non trouvé pour cette référence." });
+    }
 
     if (credit.status === "ANNULER") {
       return res.status(400).json({ message: "Ce paiement est déjà annulé." });
@@ -234,10 +279,15 @@ const ajouterPayementCredit = async (req, res) => {
 
     // 1️⃣ Récupération de la caisse principale du vendeur
     const caisseVendeur = await getCaisseByType("CAISSE", utilisateur.id, t);
-    if (!caisseVendeur)
-      throw new Error("Caisse non trouvée pour cet utilisateur.");
-    if (montant > caisseVendeur.solde_actuel)
-      throw new Error("Solde insuffisant.");
+    if (!caisseVendeur) {
+      return res
+        .status(400)
+        .json({ message: "Caisse non trouvée pour cet utilisateur." });
+    }
+
+    // if (montant > caisseVendeur.solde_actuel) {
+    //   return res.status(400).json({ message: "Solde insuffisant." });
+    // }
 
     // 2️⃣ Caisse de l’administrateur de la boutique
     let caisseAdminBoutique = null;
@@ -251,8 +301,11 @@ const ajouterPayementCredit = async (req, res) => {
         boutique.utilisateurId,
         t
       );
-      if (!caisseAdminBoutique)
-        throw new Error("Caisse CAISSE de l’admin boutique introuvable.");
+      if (!caisseAdminBoutique) {
+        return res
+          .status(400)
+          .json({ message: "Caisse CAISSE de l’admin boutique introuvable." });
+      }
     }
 
     // 1️⃣ Caisse de l'utilisateur
@@ -261,8 +314,11 @@ const ajouterPayementCredit = async (req, res) => {
       utilisateur.id,
       t
     );
-    if (!caisseCreditEspeceUtilisateur)
-      throw new Error("Caisse credit espece non trouvée pour cet utilisateur.");
+    if (!caisseCreditEspeceUtilisateur) {
+      return res.status(400).json({
+        message: "Caisse credit espece non trouvée pour cet utilisateur.",
+      });
+    }
 
     // 1️⃣ Caisse de l'utilisateur
     const caisseCreditVenteUtilisateur = await getCaisseByType(
@@ -270,8 +326,11 @@ const ajouterPayementCredit = async (req, res) => {
       utilisateur.id,
       t
     );
-    if (!caisseCreditVenteUtilisateur)
-      throw new Error("Caisse credit espece non trouvée pour cet utilisateur.");
+    if (!caisseCreditVenteUtilisateur) {
+      return res.status(400).json({
+        message: "Caisse credit espece non trouvée pour cet utilisateur.",
+      });
+    }
 
     // 2️⃣ Caisse de la boutique (admin principal)
     let caisseCreditEspeceAdminBoutique = null;
@@ -292,14 +351,26 @@ const ajouterPayementCredit = async (req, res) => {
       );
     }
 
+    let caisseCreditAchatAdminBoutique = null;
+    if (boutique && boutique.utilisateurId) {
+      caisseCreditAchatAdminBoutique = await getCaisseByType(
+        "CREDIT_ACHAT",
+        boutique.utilisateurId,
+        t
+      );
+    }
+
     // 1️⃣ Caisse de l'utilisateur
     const caisseCreditEspeceEntreUtilisateur = await getCaisseByType(
       "CREDIT_ESPECE_ENTRE",
       utilisateur.id,
       t
     );
-    if (!caisseCreditEspeceEntreUtilisateur)
-      throw new Error("Caisse credit espece non trouvée pour cet utilisateur.");
+    if (!caisseCreditEspeceEntreUtilisateur) {
+      return res.status(400).json({
+        message: "Caisse credit espece non trouvée pour cet utilisateur.",
+      });
+    }
 
     // 2️⃣ Caisse de la boutique (admin principal)
     let caisseCreditEspeceEntreAdminBoutique = null;
@@ -313,7 +384,9 @@ const ajouterPayementCredit = async (req, res) => {
 
     // Vérification dépassement du crédit
     if (credit.montantPaye + montant > credit.montant) {
-      throw new Error("Le montant dépasse le crédit restant.");
+      return res
+        .status(400)
+        .json({ message: "Le montant dépasse le crédit restant." });
     }
 
     // 💰 Mise à jour du crédit
@@ -335,10 +408,7 @@ const ajouterPayementCredit = async (req, res) => {
     // 🧾 Gestion selon le type du crédit
     if (credit.type === "SORTIE") {
       if (credit.typeCredit === "ESPECE") {
-        // 💵 Cas d'un crédit en espèces
         caisseCreditEspeceAdminBoutique.solde_actuel -= montant;
-        // caisseCreditEspeceUtilisateur.solde_actuel -= montant;
-        // caisseVendeur.solde_actuel += montant;
 
         const vendeurs = await Utilisateur.findAll({
           where: { boutiqueId: boutique.id },
@@ -364,8 +434,6 @@ const ajouterPayementCredit = async (req, res) => {
 
         await Promise.all([
           caisseCreditEspeceAdminBoutique.save({ transaction: t }),
-          // caisseCreditEspeceUtilisateur.save({ transaction: t }),
-          // caisseVendeur.save({ transaction: t }),
           caisseAdminBoutique.save({ transaction: t }),
         ]);
       } else if (credit.typeCredit === "VENTE") {
@@ -389,52 +457,74 @@ const ajouterPayementCredit = async (req, res) => {
             await caisseCreditVenteUtilisateur.save({ transaction: t });
           }
         }
-        // 🧾 Cas d'un crédit sur vente
-        // caisseCreditVenteUtilisateur.solde_actuel -= montant;
         caisseCreditVenteAdminBoutique.solde_actuel -= montant;
-        // caisseVendeur.solde_actuel += montant;
         caisseAdminBoutique.solde_actuel += montant;
 
         await Promise.all([
-          // caisseCreditVenteUtilisateur.save({ transaction: t }),
           caisseCreditVenteAdminBoutique.save({ transaction: t }),
-          // caisseVendeur.save({ transaction: t }),
           caisseAdminBoutique.save({ transaction: t }),
         ]);
       }
     } else if (credit.type === "ENTRE") {
-      caisseCreditEspeceEntreAdminBoutique.solde_actuel -= montant;
-      await caisseCreditEspeceEntreAdminBoutique.save({ transaction: t });
-
-      caisseAdminBoutique.solde_actuel -= montant;
-      await caisseAdminBoutique.save({ transaction: t });
-
-      const vendeurs = await Utilisateur.findAll({
-        where: { boutiqueId: boutique.id },
-        transaction: t,
-      });
-      for (const vendeur of vendeurs) {
-        const caisseVendeur = await getCaisseByType("CAISSE", vendeur.id, t);
-        if (caisseVendeur) {
-          caisseVendeur.solde_actuel -= montant;
-          await caisseVendeur.save({ transaction: t });
+      if (montant > caisseVendeur.solde_actuel) {
+        return res.status(400).json({ message: "Solde insuffisant." });
+      }
+      if (credit.typeCredit === "ACHAT") {
+        const vendeurs = await Utilisateur.findAll({
+          where: { boutiqueId: boutique.id },
+          transaction: t,
+        });
+        for (const vendeur of vendeurs) {
+          const caisseVendeur = await getCaisseByType("CAISSE", vendeur.id, t);
+          if (caisseVendeur) {
+            caisseVendeur.solde_actuel -= montant;
+            await caisseVendeur.save({ transaction: t });
+          }
+          const caisseCreditAchatUtilisateur = await getCaisseByType(
+            "CREDIT_ACHAT",
+            vendeur.id,
+            t
+          );
+          if (caisseCreditAchatUtilisateur) {
+            caisseCreditAchatUtilisateur.solde_actuel -= montant;
+            await caisseCreditAchatUtilisateur.save({ transaction: t });
+          }
         }
-        const caisseCreditEspeceEntreUtilisateur = await getCaisseByType(
-          "CREDIT_ESPECE_ENTRE",
-          vendeur.id,
-          t
-        );
-        if (caisseCreditEspeceEntreUtilisateur) {
-          caisseCreditEspeceEntreUtilisateur.solde_actuel -= montant;
-          await caisseCreditEspeceEntreUtilisateur.save({ transaction: t });
+        caisseCreditAchatAdminBoutique.solde_actuel -= montant;
+        caisseAdminBoutique.solde_actuel -= montant;
+
+        await Promise.all([
+          caisseCreditAchatAdminBoutique.save({ transaction: t }),
+          caisseAdminBoutique.save({ transaction: t }),
+        ]);
+      } else {
+        caisseCreditEspeceEntreAdminBoutique.solde_actuel -= montant;
+        await caisseCreditEspeceEntreAdminBoutique.save({ transaction: t });
+
+        caisseAdminBoutique.solde_actuel -= montant;
+        await caisseAdminBoutique.save({ transaction: t });
+
+        const vendeurs = await Utilisateur.findAll({
+          where: { boutiqueId: boutique.id },
+          transaction: t,
+        });
+        for (const vendeur of vendeurs) {
+          const caisseVendeur = await getCaisseByType("CAISSE", vendeur.id, t);
+          if (caisseVendeur) {
+            caisseVendeur.solde_actuel -= montant;
+            await caisseVendeur.save({ transaction: t });
+          }
+          const caisseCreditEspeceEntreUtilisateur = await getCaisseByType(
+            "CREDIT_ESPECE_ENTRE",
+            vendeur.id,
+            t
+          );
+          if (caisseCreditEspeceEntreUtilisateur) {
+            caisseCreditEspeceEntreUtilisateur.solde_actuel -= montant;
+            await caisseCreditEspeceEntreUtilisateur.save({ transaction: t });
+          }
         }
       }
-
-      // caisseVendeur.solde_actuel -= montant;
-      // await caisseVendeur.save({ transaction: t });
-
-      // caisseCreditEspeceEntreUtilisateur.solde_actuel -= montant;
-      // await caisseCreditEspeceEntreUtilisateur.save({ transaction: t });
     }
 
     // 📊 Mise à jour du statut du crédit

@@ -173,7 +173,24 @@ const annulerAchat = async (req, res) => {
     // 🔹 Annuler le crédit correspondant (type CREDIT)
     // ================================
     if (type === "CREDIT") {
-      const credit = await Credit.findOne({
+      // Vérifie d'abord s'il existe un crédit en cours de paiement
+      const creditEnCours = await Credit.findOne({
+        where: {
+          typeCredit: "ACHAT",
+          montant: total,
+          status: "EN COURS",
+        },
+        transaction: t,
+      });
+
+      if (creditEnCours) {
+        return res.status(400).json({
+          message: "On ne peut pas annuler un achat en cours de paiement.",
+        });
+      }
+
+      // Si aucun crédit n'est en cours, cherche un crédit NON PAYER pour l'annuler
+      const creditNonPaye = await Credit.findOne({
         where: {
           typeCredit: "ACHAT",
           montant: total,
@@ -182,9 +199,14 @@ const annulerAchat = async (req, res) => {
         transaction: t,
       });
 
-      if (credit) {
-        credit.status = "ANNULER";
-        await credit.save({ transaction: t });
+      if (creditNonPaye) {
+        creditNonPaye.status = "ANNULER";
+        await creditNonPaye.save({ transaction: t });
+        return res.status(200).json({ message: "Crédit annulé avec succès." });
+      } else {
+        return res
+          .status(404)
+          .json({ message: "Aucun crédit non payé à annuler." });
       }
     }
 
@@ -358,11 +380,7 @@ const creerAchat = async (req, res) => {
             t
           );
 
-           const caisseAdmin = await getCaisseByType(
-            "CAISSE",
-            admin.id,
-            t
-          );
+          const caisseAdmin = await getCaisseByType("CAISSE", admin.id, t);
           if (type === "ACHAT") {
             if (caisseAdminVSP && caisseAdmin) {
               caisseAdminVSP.solde_actuel += totalAchat;

@@ -40,7 +40,6 @@ async function getUserFromToken(req, res) {
   }
 }
 
-
 const modifierMouvementStock = async (req, res) => {
   try {
     const utilisateur = await getUserFromToken(req, res);
@@ -50,18 +49,28 @@ const modifierMouvementStock = async (req, res) => {
     const { quantite, motif } = req.body;
 
     const mouvement = await MouvementStock.findByPk(id, { include: Produit });
-    if (!mouvement) return res.status(404).json({ message: "Mouvement non trouvé." });
+    if (!mouvement)
+      return res.status(404).json({ message: "Mouvement non trouvé." });
 
     // Vérification des droits
-    if (utilisateur.Role.nom === "VENDEUR" && mouvement.utilisateurId !== utilisateur.id)
-      return res.status(403).json({ message: "Vous ne pouvez modifier que vos mouvements." });
-    
+    if (
+      utilisateur.Role.nom === "VENDEUR" &&
+      mouvement.utilisateurId !== utilisateur.id
+    )
+      return res
+        .status(403)
+        .json({ message: "Vous ne pouvez modifier que vos mouvements." });
+
     if (utilisateur.Role.nom === "ADMIN") {
       // Admin peut modifier mouvements de ses boutiques uniquement
-      const boutiquesAdmin = await Boutique.findAll({ where: { utilisateurId: utilisateur.id } });
-      const boutiqueIds = boutiquesAdmin.map(b => b.id);
+      const boutiquesAdmin = await Boutique.findAll({
+        where: { utilisateurId: utilisateur.id },
+      });
+      const boutiqueIds = boutiquesAdmin.map((b) => b.id);
       if (!boutiqueIds.includes(mouvement.boutiqueId))
-        return res.status(403).json({ message: "Accès refusé pour ce mouvement." });
+        return res
+          .status(403)
+          .json({ message: "Accès refusé pour ce mouvement." });
     }
 
     const typeMvt = await TypeMvt.findByPk(mouvement.typeMvtId);
@@ -74,28 +83,44 @@ const modifierMouvementStock = async (req, res) => {
 
     // Vérification du stock si sortie
     if (typeMvt.type === "SORTIE") {
-      const stockApresModification = produit.stock_actuel + ancienneQuantite - quantite;
+      const stockApresModification =
+        produit.stock_actuel + ancienneQuantite - quantite;
       if (stockApresModification < 0)
-        return res.status(400).json({ message: "Stock insuffisant pour cette modification." });
+        return res
+          .status(400)
+          .json({ message: "Stock insuffisant pour cette modification." });
     }
 
     await sequelize.transaction(async (t) => {
       // Ajustement du stock
       if (typeMvt.type === "ENTREE") {
-        produit.stock_actuel = produit.stock_actuel - ancienneQuantite + quantite;
+        produit.stock_actuel =
+          produit.stock_actuel - ancienneQuantite + quantite;
       } else if (typeMvt.type === "SORTIE") {
-        produit.stock_actuel = produit.stock_actuel + ancienneQuantite - quantite;
+        produit.stock_actuel =
+          produit.stock_actuel + ancienneQuantite - quantite;
       }
       await produit.save({ transaction: t });
 
       // Ajustement VALEUR_STOCK_PUR pour tous les utilisateurs concernés
-      const boutique = await Boutique.findByPk(produit.boutiqueId, { transaction: t });
+      const boutique = await Boutique.findByPk(produit.boutiqueId, {
+        transaction: t,
+      });
       if (boutique) {
-        let utilisateurs = await Utilisateur.findAll({ where: { boutiqueId: boutique.id }, transaction: t });
-        const admin = await Utilisateur.findByPk(boutique.utilisateurId, { transaction: t });
-        if (admin && !utilisateurs.some(u => u.id === admin.id)) utilisateurs.push(admin);
+        let utilisateurs = await Utilisateur.findAll({
+          where: { boutiqueId: boutique.id },
+          transaction: t,
+        });
+        const admin = await Utilisateur.findByPk(boutique.utilisateurId, {
+          transaction: t,
+        });
+        if (admin && !utilisateurs.some((u) => u.id === admin.id))
+          utilisateurs.push(admin);
 
-        const differenceValeur = typeMvt.type === "ENTREE" ? nouvelleValeur - ancienneValeur : ancienneValeur - nouvelleValeur;
+        const differenceValeur =
+          typeMvt.type === "ENTREE"
+            ? nouvelleValeur - ancienneValeur
+            : ancienneValeur - nouvelleValeur;
 
         for (const u of utilisateurs) {
           const caisseVSP = await getCaisseByType("VALEUR_STOCK_PUR", u.id, t);
@@ -112,13 +137,14 @@ const modifierMouvementStock = async (req, res) => {
       await mouvement.save({ transaction: t });
     });
 
-    res.status(200).json({ message: "Mouvement modifié avec succès.", mouvement });
+    res
+      .status(200)
+      .json({ message: "Mouvement modifié avec succès.", mouvement });
   } catch (error) {
     console.error("Erreur lors de la modification du mouvement :", error);
     res.status(500).json({ message: "Erreur interne du serveur." });
   }
 };
-
 
 /**
  * Ajouter un mouvement de stock
@@ -130,18 +156,27 @@ const ajouterMouvementStock = async (req, res) => {
 
     const { produitId, quantite, motif, typeMvtId } = req.body;
     if (!produitId || quantite == null || !motif || !typeMvtId) {
-      return res.status(400).json({ message: "Tous les champs sont obligatoires." });
+      return res
+        .status(400)
+        .json({ message: "Tous les champs sont obligatoires." });
     }
 
     const produit = await Produit.findByPk(produitId, { include: Boutique });
-    if (!produit) return res.status(404).json({ message: "Produit non trouvé." });
+    if (!produit)
+      return res.status(404).json({ message: "Produit non trouvé." });
 
     const typeMvt = await TypeMvt.findByPk(typeMvtId);
-    if (!typeMvt) return res.status(404).json({ message: "Type de mouvement non trouvé." });
+    if (!typeMvt)
+      return res.status(404).json({ message: "Type de mouvement non trouvé." });
 
     // Vérification de la boutique
-    if (utilisateur.Role.nom === "VENDEUR" && produit.boutiqueId !== utilisateur.boutiqueId) {
-      return res.status(403).json({ message: "Ce produit n'appartient pas à votre boutique." });
+    if (
+      utilisateur.Role.nom === "VENDEUR" &&
+      produit.boutiqueId !== utilisateur.boutiqueId
+    ) {
+      return res
+        .status(403)
+        .json({ message: "Ce produit n'appartient pas à votre boutique." });
     }
 
     const result = await sequelize.transaction(async (t) => {
@@ -159,35 +194,44 @@ const ajouterMouvementStock = async (req, res) => {
       await produit.save({ transaction: t });
 
       // Mise à jour VALEUR_STOCK_PUR pour tous les utilisateurs concernés
-      const boutique = await Boutique.findByPk(produit.boutiqueId, { transaction: t });
+      const boutique = await Boutique.findByPk(produit.boutiqueId, {
+        transaction: t,
+      });
       if (boutique) {
         const utilisateursBoutique = await Utilisateur.findAll({
           where: { boutiqueId: boutique.id },
           transaction: t,
         });
         // Ajouter admin si pas déjà dans la liste
-        const admin = await Utilisateur.findByPk(boutique.utilisateurId, { transaction: t });
-        if (admin && !utilisateursBoutique.some(u => u.id === admin.id)) utilisateursBoutique.push(admin);
+        const admin = await Utilisateur.findByPk(boutique.utilisateurId, {
+          transaction: t,
+        });
+        if (admin && !utilisateursBoutique.some((u) => u.id === admin.id))
+          utilisateursBoutique.push(admin);
 
         for (const u of utilisateursBoutique) {
           const caisseVSP = await getCaisseByType("VALEUR_STOCK_PUR", u.id, t);
           if (caisseVSP) {
-            caisseVSP.solde_actuel += typeMvt.type === "ENTRE" ? montant : -montant;
+            caisseVSP.solde_actuel +=
+              typeMvt.type === "ENTRE" ? montant : -montant;
             await caisseVSP.save({ transaction: t });
           }
         }
       }
 
-      const mouvement = await MouvementStock.create({
-        produitId,
-        quantite,
-        motif,
-        typeMvtId,
-        status: "VALIDER",
-        utilisateurId: utilisateur.id,
-        boutiqueId: produit.boutiqueId,
-        date: new Date(),
-      }, { transaction: t });
+      const mouvement = await MouvementStock.create(
+        {
+          produitId,
+          quantite,
+          motif,
+          typeMvtId,
+          status: "VALIDER",
+          utilisateurId: utilisateur.id,
+          boutiqueId: produit.boutiqueId,
+          date: new Date(),
+        },
+        { transaction: t }
+      );
 
       return { mouvement, produit };
     });
@@ -228,7 +272,7 @@ const recupererMouvementsStock = async (req, res) => {
         where: { utilisateurId: utilisateur.id },
         attributes: ["id"],
       });
-      const boutiqueIds = boutiques.map(b => b.id);
+      const boutiqueIds = boutiques.map((b) => b.id);
       where.boutiqueId = { [Op.in]: boutiqueIds };
     }
 
@@ -238,7 +282,11 @@ const recupererMouvementsStock = async (req, res) => {
       include: [
         { model: Produit, attributes: ["id", "nom", "boutiqueId"] },
         { model: TypeMvt, attributes: ["id", "type"] },
-        { model: Utilisateur, attributes: ["id", "nom", "email"], include: Role },
+        {
+          model: Utilisateur,
+          attributes: ["id", "nom", "email"],
+          include: Role,
+        },
       ],
     });
 
@@ -265,10 +313,16 @@ const consulterMouvementStock = async (req, res) => {
         { model: Utilisateur, attributes: ["id", "nom"], include: Role },
       ],
     });
-    if (!mouvement) return res.status(404).json({ message: "Mouvement non trouvé." });
+    if (!mouvement)
+      return res.status(404).json({ message: "Mouvement non trouvé." });
 
-    if (utilisateur.Role.nom === "VENDEUR" && mouvement.boutiqueId !== utilisateur.boutiqueId) {
-      return res.status(403).json({ message: "Accès refusé à cette ressource." });
+    if (
+      utilisateur.Role.nom === "VENDEUR" &&
+      mouvement.boutiqueId !== utilisateur.boutiqueId
+    ) {
+      return res
+        .status(403)
+        .json({ message: "Accès refusé à cette ressource." });
     }
 
     res.status(200).json(mouvement);
@@ -288,39 +342,59 @@ const annulerMouvementStock = async (req, res) => {
 
     const { id } = req.params;
     const mouvement = await MouvementStock.findByPk(id, { include: Produit });
-    if (!mouvement) return res.status(404).json({ message: "Mouvement non trouvé." });
+    if (!mouvement)
+      return res.status(404).json({ message: "Mouvement non trouvé." });
 
-    if (utilisateur.Role.nom === "VENDEUR" && mouvement.boutiqueId !== utilisateur.boutiqueId)
-      return res.status(403).json({ message: "Accès refusé à cette ressource." });
+    if (
+      utilisateur.Role.nom === "VENDEUR" &&
+      mouvement.boutiqueId !== utilisateur.boutiqueId
+    )
+      return res
+        .status(403)
+        .json({ message: "Accès refusé à cette ressource." });
 
     if (mouvement.status === "ANNULER")
-      return res.status(400).json({ message: "Ce mouvement a déjà été annulé." });
+      return res
+        .status(400)
+        .json({ message: "Ce mouvement a déjà été annulé." });
 
     const typeMvt = await TypeMvt.findByPk(mouvement.typeMvtId);
     const produit = mouvement.Produit;
     const montant = mouvement.quantite * (produit.prix_achat || 0);
 
     await sequelize.transaction(async (t) => {
-      produit.stock_actuel += typeMvt.type === "ENTREE" ? -mouvement.quantite : mouvement.quantite;
+      produit.stock_actuel +=
+        typeMvt.type === "ENTRE" ? -mouvement.quantite : mouvement.quantite;
       await produit.save({ transaction: t });
 
-      const boutique = await Boutique.findByPk(produit.boutiqueId, { transaction: t });
+      const boutique = await Boutique.findByPk(produit.boutiqueId, {
+        transaction: t,
+      });
       if (boutique) {
-        const utilisateurs = await Utilisateur.findAll({ where: { boutiqueId: boutique.id }, transaction: t });
-        const admin = await Utilisateur.findByPk(boutique.utilisateurId, { transaction: t });
-        if (admin && !utilisateurs.some(u => u.id === admin.id)) utilisateurs.push(admin);
+        const utilisateurs = await Utilisateur.findAll({
+          where: { boutiqueId: boutique.id },
+          transaction: t,
+        });
+        const admin = await Utilisateur.findByPk(boutique.utilisateurId, {
+          transaction: t,
+        });
+        if (admin && !utilisateurs.some((u) => u.id === admin.id))
+          utilisateurs.push(admin);
 
         for (const u of utilisateurs) {
           const caisseVSP = await getCaisseByType("VALEUR_STOCK_PUR", u.id, t);
           if (caisseVSP) {
-            caisseVSP.solde_actuel += typeMvt.type === "ENTREE" ? -montant : montant;
+            caisseVSP.solde_actuel +=
+              typeMvt.type === "ENTRE" ? -montant : montant;
             await caisseVSP.save({ transaction: t });
           }
         }
       }
 
       mouvement.status = "ANNULER";
-      mouvement.commentaire = `Mouvement annulé par ${utilisateur.nom} le ${new Date().toLocaleString()}`;
+      mouvement.commentaire = `Mouvement annulé par ${
+        utilisateur.nom
+      } le ${new Date().toLocaleString()}`;
       await mouvement.save({ transaction: t });
     });
 
@@ -341,29 +415,45 @@ const supprimerMouvementStock = async (req, res) => {
 
     const { id } = req.params;
     const mouvement = await MouvementStock.findByPk(id, { include: Produit });
-    if (!mouvement) return res.status(404).json({ message: "Mouvement non trouvé." });
+    if (!mouvement)
+      return res.status(404).json({ message: "Mouvement non trouvé." });
 
-    if (utilisateur.Role.nom === "VENDEUR" && mouvement.boutiqueId !== utilisateur.boutiqueId)
-      return res.status(403).json({ message: "Accès refusé à cette ressource." });
+    if (
+      utilisateur.Role.nom === "VENDEUR" &&
+      mouvement.boutiqueId !== utilisateur.boutiqueId
+    )
+      return res
+        .status(403)
+        .json({ message: "Accès refusé à cette ressource." });
 
     const typeMvt = await TypeMvt.findByPk(mouvement.typeMvtId);
     const produit = mouvement.Produit;
     const montant = mouvement.quantite * (produit.prix_achat || 0);
 
     await sequelize.transaction(async (t) => {
-      produit.stock_actuel += typeMvt.type === "ENTREE" ? -mouvement.quantite : mouvement.quantite;
+      produit.stock_actuel +=
+        typeMvt.type === "ENTREE" ? -mouvement.quantite : mouvement.quantite;
       await produit.save({ transaction: t });
 
-      const boutique = await Boutique.findByPk(produit.boutiqueId, { transaction: t });
+      const boutique = await Boutique.findByPk(produit.boutiqueId, {
+        transaction: t,
+      });
       if (boutique) {
-        const utilisateurs = await Utilisateur.findAll({ where: { boutiqueId: boutique.id }, transaction: t });
-        const admin = await Utilisateur.findByPk(boutique.utilisateurId, { transaction: t });
-        if (admin && !utilisateurs.some(u => u.id === admin.id)) utilisateurs.push(admin);
+        const utilisateurs = await Utilisateur.findAll({
+          where: { boutiqueId: boutique.id },
+          transaction: t,
+        });
+        const admin = await Utilisateur.findByPk(boutique.utilisateurId, {
+          transaction: t,
+        });
+        if (admin && !utilisateurs.some((u) => u.id === admin.id))
+          utilisateurs.push(admin);
 
         for (const u of utilisateurs) {
           const caisseVSP = await getCaisseByType("VALEUR_STOCK_PUR", u.id, t);
           if (caisseVSP) {
-            caisseVSP.solde_actuel += typeMvt.type === "ENTREE" ? -montant : montant;
+            caisseVSP.solde_actuel +=
+              typeMvt.type === "ENTREE" ? -montant : montant;
             await caisseVSP.save({ transaction: t });
           }
         }
@@ -385,5 +475,5 @@ module.exports = {
   consulterMouvementStock,
   annulerMouvementStock,
   supprimerMouvementStock,
-  modifierMouvementStock
+  modifierMouvementStock,
 };
