@@ -52,20 +52,16 @@ const annulerCredit = async (req, res) => {
       }
 
       if (credit.typeCredit === "ACHAT") {
-        return res
-          .status(400)
-          .json({
-            message:
-              "Impossible d’annuler ce crédit : il correspond à un achat. Utilisez la section « Achat » pour gérer ce type.",
-          });
+        return res.status(400).json({
+          message:
+            "Impossible d’annuler ce crédit : il correspond à un achat. Utilisez la section « Achat » pour gérer ce type.",
+        });
       }
       if (credit.typeCredit === "VENTE") {
-        return res
-          .status(400)
-          .json({
-            message:
-              "Impossible d’annuler ce crédit : il correspond à une vente. Veuillez passer par la section « Vente ».",
-          });
+        return res.status(400).json({
+          message:
+            "Impossible d’annuler ce crédit : il correspond à une vente. Veuillez passer par la section « Vente ».",
+        });
       }
 
       if (credit.status === "PAYER") {
@@ -221,6 +217,7 @@ const annulerCredit = async (req, res) => {
       // 6️⃣ Mise à jour du crédit
       // ============================
       credit.status = "ANNULER";
+      credit.nomPersonneAnnuler = utilisateur.nom;
       await credit.save({ transaction: t });
 
       // ✅ Émission socket pour mise à jour en temps réel

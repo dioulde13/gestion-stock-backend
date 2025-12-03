@@ -83,7 +83,7 @@ const annulerPayementCredit = async (req, res) => {
       t
     );
 
-     let caisseCreditAchatAdminBoutique = null;
+    let caisseCreditAchatAdminBoutique = null;
     if (boutique && boutique.utilisateurId) {
       caisseCreditAchatAdminBoutique = await getCaisseByType(
         "CREDIT_ACHAT",
@@ -178,7 +178,6 @@ const annulerPayementCredit = async (req, res) => {
           caisseCreditAchatAdminBoutique.save({ transaction: t }),
           caisseAdminBoutique.save({ transaction: t }),
         ]);
-
       } else {
         const vendeurs = await Utilisateur.findAll({
           where: { boutiqueId: boutique.id },
@@ -193,7 +192,7 @@ const annulerPayementCredit = async (req, res) => {
             t
           );
 
-          caisseVendeurs.solde_actuel -= montant;
+          caisseVendeurs.solde_actuel += montant;
           await caisseVendeurs.save({ transaction: t });
 
           caisseCreditEspeceEntreUtilisateur.solde_actuel += montant;
@@ -223,6 +222,7 @@ const annulerPayementCredit = async (req, res) => {
 
     // 🧾 Mise à jour du paiement
     payement.status = "ANNULER";
+    payement.nomPersonneAnnuler = utilisateur.nom;
     await payement.save({ transaction: t });
 
     await t.commit();

@@ -61,23 +61,21 @@ const creerVente = async (req, res) => {
       throw new Error("Utilisateur non associé à une boutique.");
 
     let clientAssocie = null;
-    if (type === "CREDIT") {
-      if (clientId) {
-        clientAssocie = await Client.findByPk(clientId, { transaction: t });
-        if (!clientAssocie) throw new Error("Client introuvable.");
-      } else {
-        if (!clientNom || !clientTelephone)
-          throw new Error("Nom et téléphone requis pour un crédit.");
-        clientAssocie = await Client.create(
-          {
-            nom: clientNom,
-            telephone: clientTelephone,
-            utilisateurId: utilisateur.id,
-            boutiqueId: utilisateur.boutiqueId,
-          },
-          { transaction: t }
-        );
-      }
+
+    // Gestion du client pour ACHAT ou CREDIT
+    if (clientId) {
+      clientAssocie = await Client.findByPk(clientId, { transaction: t });
+      if (!clientAssocie) throw new Error("Client introuvable.");
+    } else if (clientNom && clientTelephone) {
+      clientAssocie = await Client.create(
+        {
+          nom: clientNom,
+          telephone: clientTelephone,
+          utilisateurId: utilisateur.id,
+          boutiqueId: utilisateur.boutiqueId,
+        },
+        { transaction: t }
+      );
     }
 
     let totalVente = 0;
@@ -361,6 +359,10 @@ const recupererVentes = async (req, res) => {
               ],
             },
           ],
+        },
+         {
+          model: Client,
+          attributes: ["id", "nom","telephone"],
         },
         {
           model: Utilisateur,

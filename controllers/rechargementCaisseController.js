@@ -41,7 +41,7 @@ const getUserFromToken = async (req, res) => {
 const ajouterRechargementCaisse = async (req, res) => {
   const { montant, description , boutiqueId} = req.body;
 
-  if (!montant || !description || !boutiqueId) {
+  if (!montant || !description) {
     return res.status(400).json({ message: "Tous les champs sont obligatoires." });
   }
 
@@ -76,6 +76,113 @@ const ajouterRechargementCaisse = async (req, res) => {
     res.status(500).json({ message: error.message || "Erreur interne du serveur." });
   }
 };
+
+const recupererRechargementCaisse = async (req, res) => {
+  try {
+    const utilisateur = await getUserFromToken(req, res);
+    if (!utilisateur) return;
+
+    const utilisateurConnecte = await Utilisateur.findByPk(utilisateur.id, {
+      include: [
+        { model: Role, attributes: ["nom"] },
+        { model: Boutique, as: "Boutique" },
+      ],
+    });
+    if (!utilisateurConnecte) {
+      return res.status(404).json({ message: "Utilisateur non trouvé." });
+    }
+
+    let boutiqueIdsVisible = [];
+
+    if (utilisateurConnecte.Role.nom === "ADMIN") {
+      const boutiques = await Boutique.findAll({
+        where: { utilisateurId: utilisateurConnecte.id },
+      });
+      boutiqueIdsVisible = boutiques.map(b => b.id);
+    } else {
+      if (utilisateurConnecte.Boutique) {
+        boutiqueIdsVisible = [ utilisateurConnecte.Boutique.id ];
+      }
+    }
+
+    const rechargementCaisse = await RechargementCaisse.findAll({
+      where: {
+        boutiqueId: boutiqueIdsVisible
+      },
+      include: [
+        {
+          model: Utilisateur,
+          as: "vendeur",
+          attributes: ["id", "nom", "email"],
+        },
+      ],
+      order: [["createdAt", "DESC"]],
+    });
+
+    res.status(200).json(rechargementCaisse);
+
+  } catch (error) {
+    res.status(500).json({ message: "Erreur interne du serveur." });
+  }
+};
+
+
+// const recupererRechargementCaisse = async (req, res) => {
+//   try {
+//     const utilisateur = await getUserFromToken(req, res);
+//     if (!utilisateur) return;
+
+//     const utilisateurConnecte = await Utilisateur.findByPk(utilisateur.id, {
+//       include: [
+//         { model: Role, attributes: ["nom"] },
+//         { model: Boutique, as: "Boutique" },
+//       ],
+//     });
+
+//     if (!utilisateurConnecte) {
+//       return res.status(404).json({ message: "Utilisateur non trouvé." });
+//     }
+
+//     let idsUtilisateurs = [];
+
+//     if (utilisateurConnecte.Role.nom === "ADMIN") {
+//       const boutiques = await Boutique.findAll({
+//         where: { utilisateurId: utilisateurConnecte.id },
+//         include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
+//       });
+
+//       for (const boutique of boutiques) {
+//         idsUtilisateurs.push(boutique.utilisateurId);
+//         boutique.Vendeurs.forEach((v) => idsUtilisateurs.push(v.id));
+//       }
+//     } else {
+//       const boutique = await Boutique.findByPk(utilisateurConnecte.boutiqueId, {
+//         include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
+//       });
+
+//       if (boutique) {
+//         idsUtilisateurs.push(boutique.utilisateurId);
+//         boutique.Vendeurs.forEach((v) => idsUtilisateurs.push(v.id));
+//       }
+//     }
+
+//     const rechargementCaisse = await RechargementCaisse.findAll({
+//       where: { utilisateurId: idsUtilisateurs },
+//       include: [
+//         {
+//           model: Utilisateur,
+//           as: "vendeur",
+//           attributes: ["id", "nom", "email"],
+//         },
+//       ],
+//       order: [["createdAt", "DESC"]],
+//     });
+
+//     res.status(200).json(rechargementCaisse);
+//   } catch (error) {
+//     res.status(500).json({ message: "Erreur interne du serveur." });
+//   }
+// };
 
 /* ============================================================
    ✅ 2. Valider un rechargement (vendeur)
@@ -205,62 +312,7 @@ const rejeterRechargement = async (req, res) => {
 /* ============================================================
    ✅ 4. Récupérer les rechargements selon le rôle
 ============================================================ */
-const recupererRechargementCaisse = async (req, res) => {
-  try {
-    const utilisateur = await getUserFromToken(req, res);
-    if (!utilisateur) return;
 
-    const utilisateurConnecte = await Utilisateur.findByPk(utilisateur.id, {
-      include: [
-        { model: Role, attributes: ["nom"] },
-        { model: Boutique, as: "Boutique" },
-      ],
-    });
-
-    if (!utilisateurConnecte) {
-      return res.status(404).json({ message: "Utilisateur non trouvé." });
-    }
-
-    let idsUtilisateurs = [];
-
-    if (utilisateurConnecte.Role.nom === "ADMIN") {
-      const boutiques = await Boutique.findAll({
-        where: { utilisateurId: utilisateurConnecte.id },
-        include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
-      });
-
-      for (const boutique of boutiques) {
-        idsUtilisateurs.push(boutique.utilisateurId);
-        boutique.Vendeurs.forEach((v) => idsUtilisateurs.push(v.id));
-      }
-    } else {
-      const boutique = await Boutique.findByPk(utilisateurConnecte.boutiqueId, {
-        include: [{ model: Utilisateur, as: "Vendeurs", attributes: ["id"] }],
-      });
-
-      if (boutique) {
-        idsUtilisateurs.push(boutique.utilisateurId);
-        boutique.Vendeurs.forEach((v) => idsUtilisateurs.push(v.id));
-      }
-    }
-
-    const rechargementCaisse = await RechargementCaisse.findAll({
-      where: { utilisateurId: idsUtilisateurs },
-      include: [
-        {
-          model: Utilisateur,
-          as: "vendeur",
-          attributes: ["id", "nom", "email"],
-        },
-      ],
-      order: [["createdAt", "DESC"]],
-    });
-
-    res.status(200).json(rechargementCaisse);
-  } catch (error) {
-    res.status(500).json({ message: "Erreur interne du serveur." });
-  }
-};
 
 module.exports = {
   ajouterRechargementCaisse,
