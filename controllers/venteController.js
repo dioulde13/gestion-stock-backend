@@ -360,9 +360,9 @@ const recupererVentes = async (req, res) => {
             },
           ],
         },
-         {
+        {
           model: Client,
-          attributes: ["id", "nom","telephone"],
+          attributes: ["id", "nom", "telephone"],
         },
         {
           model: Utilisateur,

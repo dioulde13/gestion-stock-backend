@@ -1,5 +1,8 @@
 const Caisse = require("../models/caisse");
 
+/**
+ * Récupère les caisses d’un utilisateur (ou toutes si Admin)
+ */
 const getCaisseByUser = async (userId, roleNom) => {
   const types = [
     "ACHAT_ESPACE",
@@ -12,50 +15,68 @@ const getCaisseByUser = async (userId, roleNom) => {
     "CREDIT_VENTE",
     "PRINCIPALE",
     "VALEUR_STOCK",
-    "VALEUR_STOCK_PUR"
+    "VALEUR_STOCK_PUR",
   ];
 
   let caisses = [];
 
   if (roleNom === "Admin") {
-    // 🔑 Admin voit toutes les caisses
+    // Admin voit toutes les caisses
     caisses = await Caisse.findAll();
   } else {
-    // 🔑 Autres rôles => seulement leurs caisses
-    caisses = await Caisse.findAll({ where: { utilisateurId: userId } });
+    // Autres rôles : uniquement leurs caisses
+    caisses = await Caisse.findAll({
+      where: { utilisateurId: userId },
+    });
   }
 
-  // Construire un objet initialisé à 0
+  // Initialisation de la structure finale
   const result = {};
   types.forEach((t) => (result[t] = 0));
 
-  // Remplir avec les vraies valeurs
+  // Remplir selon les caisses existantes
   caisses.forEach((caisse) => {
     if (types.includes(caisse.type)) {
-      result[caisse.type] = caisse.montant || 0;
+      result[caisse.type] = caisse.solde_actuel || 0;
     }
   });
 
   return result;
 };
 
+/**
+ * Récupère une caisse par type + utilisateur
+ * Toujours utiliser la transaction pour éviter les deadlocks
+ */
 const getCaisseByType = async (type, utilisateurId, transaction) => {
-  let caisse = await Caisse.findOne({
+  const options = {
     where: { type, utilisateurId },
-    transaction,
-    lock: transaction.LOCK.UPDATE
-  });
+  };
 
-  // Si la caisse n’existe pas, on la crée avec un solde initial de 0
+  // Si une transaction est fournie → appliquer le LOCK
+  if (transaction) {
+    options.transaction = transaction;
+    options.lock = transaction.LOCK.UPDATE;
+  }
+
+  let caisse = await Caisse.findOne(options);
+
+  // Si elle n’existe pas → la créer
   if (!caisse) {
-    caisse = await Caisse.create({
-      type,
-      utilisateurId,
-      solde_actuel: 0
-    }, { transaction });
+    caisse = await Caisse.create(
+      {
+        type,
+        utilisateurId,
+        solde_actuel: 0,
+      },
+      { transaction }
+    );
   }
 
   return caisse;
 };
 
-module.exports = { getCaisseByUser, getCaisseByType };
+module.exports = {
+  getCaisseByUser,
+  getCaisseByType,
+};
