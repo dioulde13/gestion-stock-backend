@@ -21,6 +21,10 @@ const Depense = sequelize.define('Depense', {
     type: DataTypes.STRING,
     allowNull: false,
   },
+   nomPersonneAnnuler: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
   boutiqueId: {
     type: DataTypes.INTEGER,
     allowNull: false,

@@ -391,6 +391,7 @@ const annulerDepense = async (req, res) => {
     }
 
     depense.status = "ANNULER";
+    depense.nomPersonneAnnuler = utilisateur.nom;
     await depense.save({ transaction: t });
     await t.commit();
 
