@@ -18,6 +18,15 @@ const PayementCredit = require('./payementCredit');
 const NotificationUser = require('./notificationUser');
 const Notification = require('./notification');
 const Boutique = require('./boutique');
+const ModificationProduit = require('./modificationProduit');
+
+
+// ---- Historique de modification ----
+Produit.hasMany(ModificationProduit, { foreignKey: "produitId" });
+ModificationProduit.belongsTo(Produit, { foreignKey: "produitId" });
+
+Utilisateur.hasMany(ModificationProduit, { foreignKey: "utilisateurId" });
+ModificationProduit.belongsTo(Utilisateur, { foreignKey: "utilisateurId" });
 
 
 // =====================================

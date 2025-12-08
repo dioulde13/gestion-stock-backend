@@ -9,6 +9,7 @@ const jwt = require("jsonwebtoken");
 const Boutique = require("../models/boutique");
 const { getCaisseByType } = require("../utils/caisseUtils");
 const { Op } = require("sequelize");
+const ModificationProduit = require("../models/modificationProduit");
 
 // ===========================
 // AJOUTER UN PRODUIT
@@ -260,6 +261,21 @@ const recupererProduitsBoutique = async (req, res) => {
           attributes: ["id", "nom"],
           include: [{ model: Role, attributes: ["nom"] }],
         },
+
+        {
+          model: ModificationProduit,
+          attributes: ["id",
+             "dateModification", 
+             "nomUtilisateur", 
+             "ancienStockActuel", 
+             "nouveauStockActuel", 
+             "ancienPrixAchat", 
+             "nouveauPrixAchat", 
+             "ancienPrixVente",
+             "nouveauPrixVente"
+            ],
+          order: [["dateModification", "DESC"]],
+        },
       ],
       order: [["id", "DESC"]],
     });
@@ -363,7 +379,6 @@ const modifierProduit = async (req, res) => {
       stock_actuel,
       stock_minimum,
       categorieId,
-      // boutiqueId,
     } = req.body;
 
     // Vérification token
@@ -389,18 +404,18 @@ const modifierProduit = async (req, res) => {
     if (!produit)
       return res.status(404).json({ message: "Produit non trouvé." });
 
-    // 🚫 Empêcher prix_vente < prix_achat **avec les nouvelles valeurs**
+    // Déterminer les nouvelles valeurs
     const newPrixAchat = prix_achat ?? produit.prix_achat;
     const newPrixVente = prix_vente ?? produit.prix_vente;
+    const newStockActuel = stock_actuel ?? produit.stock_actuel;
+    const newStockMin = stock_minimum ?? produit.stock_minimum;
+
+    // Vérifications
     if (newPrixVente < newPrixAchat) {
       return res.status(400).json({
         message: "Le prix de vente ne peut pas être inférieur au prix d'achat.",
       });
     }
-
-    // 🚫 Empêcher stock_actuel < stock_minimum **avec les nouvelles valeurs**
-    const newStockActuel = stock_actuel ?? produit.stock_actuel;
-    const newStockMin = stock_minimum ?? produit.stock_minimum;
     if (newStockActuel < newStockMin) {
       return res.status(400).json({
         message:
@@ -428,9 +443,8 @@ const modifierProduit = async (req, res) => {
       });
     }
 
-    // Calcul nouvelle valeur stock
+    // Calcul différence valeur stock
     const ancienneValeur = produit.prix_achat * produit.stock_actuel;
-
     const nouvelleValeur = newPrixAchat * newStockActuel;
     const difference = nouvelleValeur - ancienneValeur;
 
@@ -463,6 +477,25 @@ const modifierProduit = async (req, res) => {
         }
       }
 
+      // -------------------------------------------
+      // ⚡ ENREGISTRER HISTORIQUE MODIFICATION
+      // -------------------------------------------
+      await ModificationProduit.create(
+        {
+          produitId: produit.id,
+          utilisateurId: utilisateur.id,
+          nomUtilisateur: utilisateur.nom,
+          dateModification: new Date(),
+          ancienStockActuel: produit.stock_actuel,
+          nouveauStockActuel: newStockActuel,
+          ancienPrixAchat: produit.prix_achat,
+          nouveauPrixAchat: newPrixAchat,
+          ancienPrixVente: produit.prix_vente,
+          nouveauPrixVente: newPrixVente,
+        },
+        { transaction: t }
+      );
+
       // Mise à jour produit
       await produit.update(
         {
@@ -472,6 +505,9 @@ const modifierProduit = async (req, res) => {
           stock_actuel: newStockActuel,
           stock_minimum: newStockMin,
           categorieId: categorieId ?? produit.categorieId,
+          nbModification: (produit.nbModification ?? 0) + 1,
+          dernierModification: new Date(),
+          dernierUtilisateur: utilisateur.nom,
         },
         { transaction: t }
       );
@@ -489,7 +525,6 @@ const modifierProduit = async (req, res) => {
     });
   }
 };
-
 
 // ===========================
 // ANNULER UN PRODUIT

@@ -11,6 +11,7 @@ const cors = require("cors");
 //sussuusus
 // Charger tes modèles
 require("./models/produit");
+require("./models/modificationProduit");
 require("./models/notification");
 require("./models/notificationUser");
 require("./models/achat");

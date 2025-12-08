@@ -1,11 +1,10 @@
-const { DataTypes } = require('sequelize');
-const sequelize = require('./sequelize');
-const Categorie = require('./categorie');
-const Utilisateur = require('./utilisateur');
-const Boutique = require('./boutique');
+const { DataTypes } = require("sequelize");
+const sequelize = require("./sequelize");
+const Categorie = require("./categorie");
+const Utilisateur = require("./utilisateur");
+const Boutique = require("./boutique");
 
-
-const Produit = sequelize.define('Produit', {
+const Produit = sequelize.define("Produit", {
   id: {
     type: DataTypes.INTEGER,
     autoIncrement: true,
@@ -18,8 +17,8 @@ const Produit = sequelize.define('Produit', {
   categorieId: {
     type: DataTypes.INTEGER,
     allowNull: false,
-  }, 
-   boutiqueId: {
+  },
+  boutiqueId: {
     type: DataTypes.INTEGER,
     allowNull: false,
   },
@@ -43,15 +42,28 @@ const Produit = sequelize.define('Produit', {
     type: DataTypes.INTEGER,
     defaultValue: 0,
   },
+   nbModification: {
+    type: DataTypes.INTEGER,
+    defaultValue: 0,
+  },
+  dernierModification: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
+  dernierUtilisateur: {
+    type: DataTypes.STRING,
+    allowNull: true,
+  },
   status: {
     type: DataTypes.ENUM("VALIDER", "ANNULER"),
     allowNull: false,
     defaultValue: "VALIDER",
   },
+
 });
 
-Produit.belongsTo(Utilisateur, { foreignKey: 'utilisateurId' });
-Produit.belongsTo(Categorie, { foreignKey: 'categorieId' });
-Produit.belongsTo(Boutique, { foreignKey: 'boutiqueId' });
+Produit.belongsTo(Utilisateur, { foreignKey: "utilisateurId" });
+Produit.belongsTo(Categorie, { foreignKey: "categorieId" });
+Produit.belongsTo(Boutique, { foreignKey: "boutiqueId" });
 
 module.exports = Produit;

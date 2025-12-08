@@ -698,7 +698,7 @@ const recupererPayementsCredit = async (req, res) => {
         { model: Utilisateur, attributes: ["id", "nom", "email"] },
         {
           model: Credit,
-          attributes: ["id", "reference", "montant", "montantPaye", "montantRestant"],
+          attributes: ["id", "reference", "montant", "montantPaye", "montantRestant","nom"],
           include: [{ model: Client, attributes: ["id", "nom"] }],
         },
       ],
