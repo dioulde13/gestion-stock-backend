@@ -12,6 +12,14 @@ const Utilisateur = sequelize.define("Utilisateur", {
   // 🔥 Champ qui manquait !
   adminId: { type: DataTypes.INTEGER, allowNull: true },
   otp: { type: DataTypes.INTEGER, allowNull: true },
+  otpExpire: {
+    type: DataTypes.DATE,
+    allowNull: true,
+  },
+
+  tentativesLogin: { type: DataTypes.INTEGER, defaultValue: 0 },
+  tentativesOtp: { type: DataTypes.INTEGER, defaultValue: 0 },
+  bloque: { type: DataTypes.BOOLEAN, defaultValue: false },
 });
 
 module.exports = Utilisateur;

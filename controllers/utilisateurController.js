@@ -6,6 +6,18 @@ const sequelize = require("../models/sequelize");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcrypt");
 const { Op } = require("sequelize");
+require("dotenv").config(); // si tu utilises .env
+
+const nodemailer = require("nodemailer");
+
+// ⚡ Configurer le transporteur
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.MAIL_USER, // ton email Gmail
+    pass: process.env.MAIL_PASS, // mot de passe d'application
+  },
+});
 
 // ===============================
 // Utilitaire : récupérer l’utilisateur connecté via token JWT
@@ -35,12 +47,10 @@ const getUserFromToken = async (req) => {
   return utilisateur;
 };
 
-// ===============================
-// Connexion utilisateur
-// ===============================
 const connexionUtilisateur = async (req, res) => {
   try {
     const { email, mot_de_passe } = req.body;
+
     const utilisateur = await Utilisateur.findOne({
       where: { email },
       include: [
@@ -54,13 +64,92 @@ const connexionUtilisateur = async (req, res) => {
       ],
     });
 
+    if (!utilisateur) {
+      return res.status(404).json({ message: "Utilisateur non trouvé" });
+    }
+
+    if (utilisateur.bloque) {
+      return res
+        .status(403)
+        .json({ message: "Compte bloqué. Contactez un administrateur." });
+    }
+
+    const match = await bcrypt.compare(mot_de_passe, utilisateur.mot_de_passe);
+    if (!match) {
+      utilisateur.tentativesLogin += 1;
+      if (utilisateur.tentativesLogin > 3) {
+        utilisateur.bloque = true;
+      }
+      await utilisateur.save();
+      return res.status(401).json({ message: "Mot de passe incorrect" });
+    }
+
+    // Réinitialiser les tentatives en cas de succès
+    utilisateur.tentativesLogin = 0;
+    await utilisateur.save();
+
+    // Générer OTP
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+    const otpExpire = new Date(Date.now() + 1 * 60 * 1000); // 1 minute
+    await utilisateur.update({ otp, otpExpire });
+
+    // Envoyer email OTP
+    try {
+      await transporter.sendMail({
+        from: process.env.MAIL_USER,
+        to: utilisateur.email,
+        subject: "Votre code OTP",
+        text: `Votre code OTP est : ${otp}. Il expire dans 1 minute.`,
+      });
+    } catch (mailErr) {
+      return res.status(500).json({ message: "Erreur envoi email OTP" });
+    }
+
+    return res.status(200).json({
+      message: "OTP envoyé à votre adresse email",
+      step: "otp_required",
+      status: 200,
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+};
+
+const verifierOtp = async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    const utilisateur = await Utilisateur.findOne({ where: { email } });
+
     if (!utilisateur)
       return res.status(404).json({ message: "Utilisateur non trouvé" });
 
-    const match = await bcrypt.compare(mot_de_passe, utilisateur.mot_de_passe);
-    if (!match)
-      return res.status(401).json({ message: "Mot de passe incorrect" });
+    if (utilisateur.bloque) {
+      return res
+        .status(403)
+        .json({ message: "Compte bloqué. Contactez un administrateur." });
+    }
 
+    if (utilisateur.otp !== Number(otp)) {
+      utilisateur.tentativesOtp += 1;
+      if (utilisateur.tentativesOtp > 3) {
+        utilisateur.bloque = true;
+      }
+      await utilisateur.save();
+      return res.status(400).json({ message: "OTP incorrect" });
+    }
+
+    if (new Date() > utilisateur.otpExpire) {
+      return res.status(400).json({ message: "OTP expiré" });
+    }
+
+    // Réinitialiser les tentatives OTP en cas de succès
+    utilisateur.tentativesOtp = 0;
+    utilisateur.otp = null;
+    utilisateur.otpExpire = null;
+    await utilisateur.save();
+
+    // Générer token JWT
     const token = jwt.sign(
       {
         id: utilisateur.id,
@@ -71,19 +160,65 @@ const connexionUtilisateur = async (req, res) => {
       { expiresIn: "1h" }
     );
 
-    res.status(200).json({
+    return res.status(200).json({
       message: "Connexion réussie",
       token,
       utilisateur: {
         id: utilisateur.id,
-        nom: utilisateur.nom,
         email: utilisateur.email,
-        role: utilisateur.Role?.nom,
-        boutiques: utilisateur.Boutique
-          ? [{ id: utilisateur.Boutique.id, nom: utilisateur.Boutique.nom }]
-          : [],
+        nom: utilisateur.nom,
+        role: utilisateur.Role?.nom || null,
       },
+      status: 200,
     });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+};
+
+const renvoyerOtp = async (req, res) => {
+  try {
+    const { email } = req.body;
+
+    if (!email)
+      return res
+        .status(400)
+        .json({ message: "Email requis pour renvoyer l'OTP" });
+
+    const utilisateur = await Utilisateur.findOne({ where: { email } });
+    if (!utilisateur)
+      return res.status(404).json({ message: "Utilisateur non trouvé" });
+
+    if (utilisateur.bloque) {
+      return res
+        .status(403)
+        .json({ message: "Compte bloqué. Contactez un administrateur." });
+    }
+
+    // Générer nouveau OTP
+    const otp = Math.floor(1000 + Math.random() * 9000).toString();
+    const otpExpire = new Date(Date.now() + 1 * 60 * 1000); // 1 minute
+
+    utilisateur.otp = otp;
+    utilisateur.otpExpire = otpExpire;
+    await utilisateur.save();
+
+    // Envoyer email OTP
+    try {
+      await transporter.sendMail({
+        from: process.env.MAIL_USER,
+        to: utilisateur.email,
+        subject: "Votre nouveau code OTP",
+        text: `Votre nouveau code OTP est : ${otp}. Il expire dans 1 minute.`,
+      });
+    } catch (mailErr) {
+      return res.status(500).json({ message: "Erreur envoi email OTP" });
+    }
+
+    res
+      .status(200)
+      .json({ message: "Nouveau OTP envoyé avec succès", status: 200 });
   } catch (err) {
     console.error(err);
     res.status(500).json({ message: "Erreur serveur" });
@@ -224,12 +359,18 @@ const recupererUtilisateurs = async (req, res) => {
 // ===============================
 const modifierUtilisateur = async (req, res) => {
   try {
-    const utilisateur = await getUserFromToken(req);
-    const { nom, email } = req.body;
+    const { id } = req.params;
+    const { nom, email, boutiqueId } = req.body; // 🔥 Extraction manquante
+
+    const utilisateur = await Utilisateur.findByPk(id);
+    if (!utilisateur) {
+      return res.status(404).json({ message: "Utilisateur non trouvé" });
+    }
 
     await utilisateur.update({
-      nom: nom || utilisateur.nom,
-      email: email || utilisateur.email,
+      nom: nom ?? utilisateur.nom, // mise à jour seulement si donné
+      email: email ?? utilisateur.email,
+      boutiqueId: boutiqueId ?? utilisateur.boutiqueId,
     });
 
     res.status(200).json({
@@ -238,13 +379,14 @@ const modifierUtilisateur = async (req, res) => {
         id: utilisateur.id,
         nom: utilisateur.nom,
         email: utilisateur.email,
+        boutiqueId: utilisateur.boutiqueId,
       },
     });
   } catch (error) {
     console.error(error);
-    res
-      .status(error.status || 500)
-      .json({ message: error.message || "Erreur serveur" });
+    res.status(500).json({
+      message: error.message || "Erreur serveur",
+    });
   }
 };
 
@@ -309,7 +451,34 @@ const getUtilisateurConnecte = async (req, res) => {
   }
 };
 
+const debloquerUtilisateur = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Vérifier que l'utilisateur connecté est admin
+    const admin = await getUserFromToken(req);
+    if (admin.Role.nom.toLowerCase() !== "admin") {
+      return res.status(403).json({ message: "Accès refusé" });
+    }
+
+    const utilisateur = await Utilisateur.findByPk(id);
+    if (!utilisateur)
+      return res.status(404).json({ message: "Utilisateur non trouvé" });
+
+    utilisateur.bloque = false;
+    utilisateur.tentativesLogin = 0;
+    utilisateur.tentativesOtp = 0;
+    await utilisateur.save();
+
+    res.status(200).json({ message: "Utilisateur débloqué avec succès." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ message: "Erreur serveur" });
+  }
+};
+
 module.exports = {
+  debloquerUtilisateur,
   getUtilisateurConnecte,
   creerVendeur,
   recupererUtilisateurs,
@@ -317,4 +486,6 @@ module.exports = {
   connexionUtilisateur,
   supprimerUtilisateur,
   changerMotDePasse,
+  verifierOtp,
+  renvoyerOtp,
 };
