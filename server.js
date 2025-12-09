@@ -53,7 +53,7 @@ const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
-    origin: ["https://stock-frontend-phi.vercel.app", "http://localhost:3001"], // à limiter en production
+    origin: ["https://stock-frontend-phi.vercel.app"], // à limiter en production
     methods: ["GET", "POST"],
   },
 });
@@ -65,7 +65,7 @@ app.use(bodyParser.json());
 
 app.use(
   cors({
-    origin: ["https://stock-frontend-phi.vercel.app", "http://localhost:3001"], // Adapter si besoin pour Angular
+    origin: ["https://stock-frontend-phi.vercel.app"], // Adapter si besoin pour Angular
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
