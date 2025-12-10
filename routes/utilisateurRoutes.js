@@ -10,8 +10,8 @@ router.put('/updatePassword', utilisateurController.changerMotDePasse);
 router.post('/login', utilisateurController.connexionUtilisateur); 
 router.delete('/supprimer/:id', utilisateurController.supprimerUtilisateur);
 router.get('/profile', utilisateurController.getUtilisateurConnecte); 
-router.put('/verifierOtp', utilisateurController.verifierOtp); 
-router.put('/renvoyerOtp', utilisateurController.renvoyerOtp);
+// router.put('/verifierOtp', utilisateurController.verifierOtp); 
+// router.put('/renvoyerOtp', utilisateurController.renvoyerOtp);
 router.put('/debloquer', utilisateurController.debloquerUtilisateur);
 
 module.exports = router;
