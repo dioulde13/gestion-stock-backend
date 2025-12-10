@@ -46,25 +46,25 @@
 // module.exports = dbConfig;
 
 
-// require("dotenv").config();
+require("dotenv").config();
 
-// module.exports = {
-//   host: process.env.MYSQLHOST, // Domaine public Railway
-//   user: process.env.MYSQLUSER,
-//   password: process.env.MYSQLPASSWORD,
-//   database: process.env.MYSQLDATABASE,
-//   port: parseInt(process.env.MYSQLPORT || "3306"), // Port public Railway
-// };
+module.exports = {
+  host: process.env.MYSQLHOST,
+  user: process.env.MYSQLUSER,         // 👈 attention ici
+  password: process.env.MYSQLPASSWORD,
+  database: process.env.MYSQLDATABASE,
+  port: parseInt(process.env.MYSQLPORT || "3306"),
+};
 
 
 // Configuration de la connexion à la base de données
-const dbConfig = {
-  port: 3306,
-  host: '127.0.0.1',
-  user: 'root',
-  password: '1234',
-  database: 'gestion_stock',
-};
-module.exports = dbConfig;
+// const dbConfig = {
+//   port: 3306,
+//   host: '127.0.0.1',
+//   user: 'root',
+//   password: '1234',
+//   database: 'gestion_stock',
+// };
+// module.exports = dbConfig;
 
 
