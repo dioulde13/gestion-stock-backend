@@ -49,72 +49,146 @@ const getUserFromToken = async (req) => {
 
 const connexionUtilisateur = async (req, res) => {
   try {
+    console.log('Login attempt for email:', req.body.email);
+
     const { email, mot_de_passe } = req.body;
 
     const utilisateur = await Utilisateur.findOne({
       where: { email },
       include: [
         { model: Role, attributes: ["id", "nom"] },
-        {
-          model: Boutique,
-          as: "Boutique",
-          attributes: ["id", "nom"],
-          required: false,
-        },
+        { model: Boutique, as: "Boutique", attributes: ["id", "nom"], required: false },
       ],
     });
+    console.log('Utilisateur found:', utilisateur ? utilisateur.id : null);
 
     if (!utilisateur) {
+      console.log('No user found → 404');
       return res.status(404).json({ message: "Utilisateur non trouvé" });
     }
 
     if (utilisateur.bloque) {
-      return res
-        .status(403)
-        .json({ message: "Compte bloqué. Contactez un administrateur." });
+      console.log('User is blocked → 403');
+      return res.status(403).json({ message: "Compte bloqué. Contactez un administrateur." });
     }
 
     const match = await bcrypt.compare(mot_de_passe, utilisateur.mot_de_passe);
+    console.log('Password match result:', match);
+
     if (!match) {
       utilisateur.tentativesLogin += 1;
       if (utilisateur.tentativesLogin > 3) {
         utilisateur.bloque = true;
       }
       await utilisateur.save();
+      console.log('Incremented login attempts / blocked if needed → 401');
       return res.status(401).json({ message: "Mot de passe incorrect" });
     }
 
-    // Réinitialiser les tentatives en cas de succès
+    console.log('Password OK, reset login attempts');
     utilisateur.tentativesLogin = 0;
     await utilisateur.save();
 
-    // Générer OTP
     const otp = Math.floor(1000 + Math.random() * 9000).toString();
-    const otpExpire = new Date(Date.now() + 1 * 60 * 1000); // 1 minute
+    const otpExpire = new Date(Date.now() + 1 * 60 * 1000);
     await utilisateur.update({ otp, otpExpire });
+    console.log('OTP generated:', otp, 'expire at:', otpExpire);
 
-    // Envoyer email OTP
     try {
-      await transporter.sendMail({
+      const mailInfo = await transporter.sendMail({
         from: process.env.MAIL_USER,
         to: utilisateur.email,
         subject: "Votre code OTP",
         text: `Votre code OTP est : ${otp}. Il expire dans 1 minute.`,
       });
+      console.log('OTP mail sent:', mailInfo);
     } catch (mailErr) {
+      console.error('Erreur envoi email OTP:', mailErr);
       return res.status(500).json({ message: "Erreur envoi email OTP" });
     }
 
+    console.log('Login success, OTP step required');
     return res.status(200).json({
       message: "OTP envoyé à votre adresse email",
       step: "otp_required",
       status: 200,
     });
+
   } catch (err) {
-    console.error(err);
+    console.error('SERVER ERROR on /login:', err);
     res.status(500).json({ message: "Erreur serveur" });
   }
 };
+
+
+// const connexionUtilisateur = async (req, res) => {
+//   try {
+//     const { email, mot_de_passe } = req.body;
+
+//     const utilisateur = await Utilisateur.findOne({
+//       where: { email },
+//       include: [
+//         { model: Role, attributes: ["id", "nom"] },
+//         {
+//           model: Boutique,
+//           as: "Boutique",
+//           attributes: ["id", "nom"],
+//           required: false,
+//         },
+//       ],
+//     });
+
+//     if (!utilisateur) {
+//       return res.status(404).json({ message: "Utilisateur non trouvé" });
+//     }
+
+//     if (utilisateur.bloque) {
+//       return res
+//         .status(403)
+//         .json({ message: "Compte bloqué. Contactez un administrateur." });
+//     }
+
+//     const match = await bcrypt.compare(mot_de_passe, utilisateur.mot_de_passe);
+//     if (!match) {
+//       utilisateur.tentativesLogin += 1;
+//       if (utilisateur.tentativesLogin > 3) {
+//         utilisateur.bloque = true;
+//       }
+//       await utilisateur.save();
+//       return res.status(401).json({ message: "Mot de passe incorrect" });
+//     }
+
+//     // Réinitialiser les tentatives en cas de succès
+//     utilisateur.tentativesLogin = 0;
+//     await utilisateur.save();
+
+//     // Générer OTP
+//     const otp = Math.floor(1000 + Math.random() * 9000).toString();
+//     const otpExpire = new Date(Date.now() + 1 * 60 * 1000); // 1 minute
+//     await utilisateur.update({ otp, otpExpire });
+
+//     // Envoyer email OTP
+//     try {
+//       await transporter.sendMail({
+//         from: process.env.MAIL_USER,
+//         to: utilisateur.email,
+//         subject: "Votre code OTP",
+//         text: `Votre code OTP est : ${otp}. Il expire dans 1 minute.`,
+//       });
+//     } catch (mailErr) {
+//       return res.status(500).json({ message: "Erreur envoi email OTP" });
+//     }
+
+//     return res.status(200).json({
+//       message: "OTP envoyé à votre adresse email",
+//       step: "otp_required",
+//       status: 200,
+//     });
+//   } catch (err) {
+//     console.error(err);
+//     res.status(500).json({ message: "Erreur serveur" });
+//   }
+// };
 
 const verifierOtp = async (req, res) => {
   try {
