@@ -12,6 +12,6 @@ router.delete('/supprimer/:id', utilisateurController.supprimerUtilisateur);
 router.get('/profile', utilisateurController.getUtilisateurConnecte); 
 // router.put('/verifierOtp', utilisateurController.verifierOtp); 
 // router.put('/renvoyerOtp', utilisateurController.renvoyerOtp);
-router.put('/debloquer', utilisateurController.debloquerUtilisateur);
+router.put('/debloquer/:id', utilisateurController.debloquerUtilisateur);
 
 module.exports = router;
