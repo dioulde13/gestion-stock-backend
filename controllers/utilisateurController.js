@@ -97,7 +97,7 @@ const connexionUtilisateur = async (req, res) => {
     utilisateur.tentativesLogin = 0;
     await utilisateur.save();
 
-    // Générer token JWT directement — plus d’OTP
+    // Générer token JWT
     const token = jwt.sign(
       {
         id: utilisateur.id,
@@ -109,6 +109,8 @@ const connexionUtilisateur = async (req, res) => {
     );
 
     console.log("Login successful, returning token");
+
+    // Retour avec boutique correctement définie
     return res.status(200).json({
       message: "Connexion réussie",
       token,
@@ -117,6 +119,9 @@ const connexionUtilisateur = async (req, res) => {
         email: utilisateur.email,
         nom: utilisateur.nom,
         role: utilisateur.Role?.nom || null,
+        boutique: utilisateur.Boutique
+          ? { id: utilisateur.Boutique.id, nom: utilisateur.Boutique.nom }
+          : null,
       },
       status: 200,
     });
