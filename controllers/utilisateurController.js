@@ -126,9 +126,7 @@ const connexionUtilisateur = async (req, res) => {
   }
 };
 
-// ===============================
-// Créer un vendeur
-// ===============================
+
 const creerVendeur = async (req, res) => {
   const t = await sequelize.transaction();
   try {
@@ -168,6 +166,7 @@ const creerVendeur = async (req, res) => {
       { transaction: t }
     );
 
+    // --- Les types de caisses ---
     const typesCaisses = [
       "PRINCIPALE",
       "VALEUR_STOCK_PUR",
@@ -182,6 +181,7 @@ const creerVendeur = async (req, res) => {
       "CREDIT_ESPECE_ENTRE",
     ];
 
+    // Création des caisses pour le vendeur
     for (const type of typesCaisses) {
       await Caisse.create(
         { utilisateurId: vendeur.id, type, solde_actuel: 0 },
@@ -189,29 +189,45 @@ const creerVendeur = async (req, res) => {
       );
     }
 
-    const caisseBoutique = await Caisse.findOne({
-      where: {
-        type: "VALEUR_STOCK_PUR",
-        utilisateurId: { [Op.in]: boutique.Vendeurs.map((v) => v.id) },
-      },
-      order: [["createdAt", "ASC"]],
-      transaction: t,
-    });
+    // --- Types à synchroniser comme VALEUR_STOCK_PUR ---
+    const typesASynchroniser = [
+      "VALEUR_STOCK_PUR",
+      "CREDIT_VENTE",
+      "CREDIT_ACHAT",
+      "ACHAT_ESPACE",
+      "CREDIT_ESPECE",
+      "CREDIT_ESPECE_ENTRE",
+      "CAISSE",
+    ];
 
-    if (caisseBoutique) {
-      const valeurStockPur = caisseBoutique.solde_actuel;
-      await Caisse.update(
-        { solde_actuel: valeurStockPur },
-        {
-          where: {
-            type: "VALEUR_STOCK_PUR",
-            utilisateurId: {
-              [Op.in]: boutique.Vendeurs.map((v) => v.id).concat(vendeur.id),
+    for (const type of typesASynchroniser) {
+      // On récupère la première caisse existante pour ce type
+      const caisseExistante = await Caisse.findOne({
+        where: {
+          type,
+          utilisateurId: { [Op.in]: boutique.Vendeurs.map(v => v.id) },
+        },
+        order: [["createdAt", "ASC"]],
+        transaction: t,
+      });
+
+      if (caisseExistante) {
+        const montant = caisseExistante.solde_actuel;
+
+        // On met à jour toutes les caisses de ce type pour tous les vendeurs (y compris le nouveau)
+        await Caisse.update(
+          { solde_actuel: montant },
+          {
+            where: {
+              type,
+              utilisateurId: {
+                [Op.in]: boutique.Vendeurs.map(v => v.id).concat(vendeur.id),
+              },
             },
-          },
-          transaction: t,
-        }
-      );
+            transaction: t,
+          }
+        );
+      }
     }
 
     await t.commit();
@@ -222,6 +238,104 @@ const creerVendeur = async (req, res) => {
     res.status(500).json({ message: "Erreur lors de la création du vendeur." });
   }
 };
+
+
+// ===============================
+// Créer un vendeur
+// ===============================
+// const creerVendeur = async (req, res) => {
+//   const t = await sequelize.transaction();
+//   try {
+//     let { boutiqueId, nom, email, mot_de_passe } = req.body;
+//     if (!boutiqueId || !nom || !email)
+//       return res
+//         .status(400)
+//         .json({ message: "Tous les champs sont obligatoires." });
+
+//     mot_de_passe = mot_de_passe || "1234";
+
+//     const boutique = await Boutique.findByPk(boutiqueId, {
+//       include: [{ model: Utilisateur, as: "Vendeurs" }],
+//       transaction: t,
+//     });
+//     if (!boutique)
+//       return res.status(404).json({ message: "Boutique non trouvée." });
+
+//     const exist = await Utilisateur.findOne({
+//       where: { email },
+//       transaction: t,
+//     });
+//     if (exist)
+//       return res.status(400).json({ message: "Cet email est déjà utilisé." });
+
+//     let roleVendeur = await Role.findOne({
+//       where: { nom: "VENDEUR" },
+//       transaction: t,
+//     });
+//     if (!roleVendeur)
+//       roleVendeur = await Role.create({ nom: "VENDEUR" }, { transaction: t });
+
+//     const hash = await bcrypt.hash(mot_de_passe, 10);
+
+//     const vendeur = await Utilisateur.create(
+//       { nom, email, mot_de_passe: hash, roleId: roleVendeur.id, boutiqueId },
+//       { transaction: t }
+//     );
+
+//     const typesCaisses = [
+//       "PRINCIPALE",
+//       "VALEUR_STOCK_PUR",
+//       "CAISSE",
+//       "BENEFICE",
+//       "VALEUR_STOCK",
+//       "CREDIT_VENTE",
+//       "BENEFICE_CREDIT",
+//       "CREDIT_ACHAT",
+//       "ACHAT_ESPACE",
+//       "CREDIT_ESPECE",
+//       "CREDIT_ESPECE_ENTRE",
+//     ];
+
+//     for (const type of typesCaisses) {
+//       await Caisse.create(
+//         { utilisateurId: vendeur.id, type, solde_actuel: 0 },
+//         { transaction: t }
+//       );
+//     }
+
+//     const caisseBoutique = await Caisse.findOne({
+//       where: {
+//         type: "VALEUR_STOCK_PUR",
+//         utilisateurId: { [Op.in]: boutique.Vendeurs.map((v) => v.id) },
+//       },
+//       order: [["createdAt", "ASC"]],
+//       transaction: t,
+//     });
+
+//     if (caisseBoutique) {
+//       const valeurStockPur = caisseBoutique.solde_actuel;
+//       await Caisse.update(
+//         { solde_actuel: valeurStockPur },
+//         {
+//           where: {
+//             type: "VALEUR_STOCK_PUR",
+//             utilisateurId: {
+//               [Op.in]: boutique.Vendeurs.map((v) => v.id).concat(vendeur.id),
+//             },
+//           },
+//           transaction: t,
+//         }
+//       );
+//     }
+
+//     await t.commit();
+//     res.status(201).json({ message: "Vendeur créé avec succès.", vendeur });
+//   } catch (error) {
+//     await t.rollback();
+//     console.error(error);
+//     res.status(500).json({ message: "Erreur lors de la création du vendeur." });
+//   }
+// };
 
 const recupererUtilisateurs = async (req, res) => {
   try {
