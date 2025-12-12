@@ -48,10 +48,9 @@ const getUserFromToken = async (req) => {
   return utilisateur;
 };
 
-
 const connexionUtilisateur = async (req, res) => {
   try {
-    console.log('Login attempt for email:', req.body.email);
+    console.log("Login attempt for email:", req.body.email);
 
     const { email, mot_de_passe } = req.body;
 
@@ -59,23 +58,30 @@ const connexionUtilisateur = async (req, res) => {
       where: { email },
       include: [
         { model: Role, attributes: ["id", "nom"] },
-        { model: Boutique, as: "Boutique", attributes: ["id", "nom"], required: false },
+        {
+          model: Boutique,
+          as: "Boutique",
+          attributes: ["id", "nom"],
+          required: false,
+        },
       ],
     });
-    console.log('Utilisateur found:', utilisateur ? utilisateur.id : null);
+    console.log("Utilisateur found:", utilisateur ? utilisateur.id : null);
 
     if (!utilisateur) {
-      console.log('No user found → 404');
+      console.log("No user found → 404");
       return res.status(404).json({ message: "Utilisateur non trouvé" });
     }
 
     if (utilisateur.bloque) {
-      console.log('User is blocked → 403');
-      return res.status(403).json({ message: "Compte bloqué. Contactez un administrateur." });
+      console.log("User is blocked → 403");
+      return res
+        .status(403)
+        .json({ message: "Compte bloqué. Contactez un administrateur." });
     }
 
     const match = await bcrypt.compare(mot_de_passe, utilisateur.mot_de_passe);
-    console.log('Password match result:', match);
+    console.log("Password match result:", match);
 
     if (!match) {
       utilisateur.tentativesLogin += 1;
@@ -83,11 +89,11 @@ const connexionUtilisateur = async (req, res) => {
         utilisateur.bloque = true;
       }
       await utilisateur.save();
-      console.log('Incremented login attempts / blocked if needed → 401');
+      console.log("Incremented login attempts / blocked if needed → 401");
       return res.status(401).json({ message: "Mot de passe incorrect" });
     }
 
-    console.log('Password OK, reset login attempts');
+    console.log("Password OK, reset login attempts");
     utilisateur.tentativesLogin = 0;
     await utilisateur.save();
 
@@ -102,7 +108,7 @@ const connexionUtilisateur = async (req, res) => {
       { expiresIn: "1h" }
     );
 
-    console.log('Login successful, returning token');
+    console.log("Login successful, returning token");
     return res.status(200).json({
       message: "Connexion réussie",
       token,
@@ -114,195 +120,11 @@ const connexionUtilisateur = async (req, res) => {
       },
       status: 200,
     });
-
   } catch (err) {
-    console.error('SERVER ERROR on /login:', err);
+    console.error("SERVER ERROR on /login:", err);
     res.status(500).json({ message: "Erreur serveur" });
   }
 };
-
-// const connexionUtilisateur = async (req, res) => {
-//   try {
-//     console.log('Login attempt for email:', req.body.email);
-
-//     const { email, mot_de_passe } = req.body;
-
-//     const utilisateur = await Utilisateur.findOne({
-//       where: { email },
-//       include: [
-//         { model: Role, attributes: ["id", "nom"] },
-//         { model: Boutique, as: "Boutique", attributes: ["id", "nom"], required: false },
-//       ],
-//     });
-//     console.log('Utilisateur found:', utilisateur ? utilisateur.id : null);
-
-//     if (!utilisateur) {
-//       console.log('No user found → 404');
-//       return res.status(404).json({ message: "Utilisateur non trouvé" });
-//     }
-
-//     if (utilisateur.bloque) {
-//       console.log('User is blocked → 403');
-//       return res.status(403).json({ message: "Compte bloqué. Contactez un administrateur." });
-//     }
-
-//     const match = await bcrypt.compare(mot_de_passe, utilisateur.mot_de_passe);
-//     console.log('Password match result:', match);
-
-//     if (!match) {
-//       utilisateur.tentativesLogin += 1;
-//       if (utilisateur.tentativesLogin > 3) {
-//         utilisateur.bloque = true;
-//       }
-//       await utilisateur.save();
-//       console.log('Incremented login attempts / blocked if needed → 401');
-//       return res.status(401).json({ message: "Mot de passe incorrect" });
-//     }
-
-//     console.log('Password OK, reset login attempts');
-//     utilisateur.tentativesLogin = 0;
-//     await utilisateur.save();
-
-//     const otp = Math.floor(1000 + Math.random() * 9000).toString();
-//     const otpExpire = new Date(Date.now() + 1 * 60 * 1000);
-//     await utilisateur.update({ otp, otpExpire });
-//     console.log('OTP generated:', otp, 'expire at:', otpExpire);
-
-//     try {
-//       const mailInfo = await transporter.sendMail({
-//         from: process.env.MAIL_USER,
-//         to: utilisateur.email,
-//         subject: "Votre code OTP",
-//         text: `Votre code OTP est : ${otp}. Il expire dans 1 minute.`,
-//       });
-//       console.log('OTP mail sent:', mailInfo);
-//     } catch (mailErr) {
-//       console.error('Erreur envoi email OTP:', mailErr);
-//       return res.status(500).json({ message: "Erreur envoi email OTP" });
-//     }
-
-//     console.log('Login success, OTP step required');
-//     return res.status(200).json({
-//       message: "OTP envoyé à votre adresse email",
-//       step: "otp_required",
-//       status: 200,
-//     });
-
-//   } catch (err) {
-//     console.error('SERVER ERROR on /login:', err);
-//     res.status(500).json({ message: "Erreur serveur" });
-//   }
-// };
-
-
-// const verifierOtp = async (req, res) => {
-//   try {
-//     const { email, otp } = req.body;
-//     const utilisateur = await Utilisateur.findOne({ where: { email } });
-
-//     if (!utilisateur)
-//       return res.status(404).json({ message: "Utilisateur non trouvé" });
-
-//     if (utilisateur.bloque) {
-//       return res
-//         .status(403)
-//         .json({ message: "Compte bloqué. Contactez un administrateur." });
-//     }
-
-//     if (utilisateur.otp !== Number(otp)) {
-//       utilisateur.tentativesOtp += 1;
-//       if (utilisateur.tentativesOtp > 3) {
-//         utilisateur.bloque = true;
-//       }
-//       await utilisateur.save();
-//       return res.status(400).json({ message: "OTP incorrect" });
-//     }
-
-//     if (new Date() > utilisateur.otpExpire) {
-//       return res.status(400).json({ message: "OTP expiré" });
-//     }
-
-//     // Réinitialiser les tentatives OTP en cas de succès
-//     utilisateur.tentativesOtp = 0;
-//     utilisateur.otp = null;
-//     utilisateur.otpExpire = null;
-//     await utilisateur.save();
-
-//     // Générer token JWT
-//     const token = jwt.sign(
-//       {
-//         id: utilisateur.id,
-//         email: utilisateur.email,
-//         role: utilisateur.Role?.nom,
-//       },
-//       process.env.JWT_SECRET,
-//       { expiresIn: "1h" }
-//     );
-
-//     return res.status(200).json({
-//       message: "Connexion réussie",
-//       token,
-//       utilisateur: {
-//         id: utilisateur.id,
-//         email: utilisateur.email,
-//         nom: utilisateur.nom,
-//         role: utilisateur.Role?.nom || null,
-//       },
-//       status: 200,
-//     });
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({ message: "Erreur serveur" });
-//   }
-// };
-
-// const renvoyerOtp = async (req, res) => {
-//   try {
-//     const { email } = req.body;
-
-//     if (!email)
-//       return res
-//         .status(400)
-//         .json({ message: "Email requis pour renvoyer l'OTP" });
-
-//     const utilisateur = await Utilisateur.findOne({ where: { email } });
-//     if (!utilisateur)
-//       return res.status(404).json({ message: "Utilisateur non trouvé" });
-
-//     if (utilisateur.bloque) {
-//       return res
-//         .status(403)
-//         .json({ message: "Compte bloqué. Contactez un administrateur." });
-//     }
-
-//     // Générer nouveau OTP
-//     const otp = Math.floor(1000 + Math.random() * 9000).toString();
-//     const otpExpire = new Date(Date.now() + 1 * 60 * 1000); // 1 minute
-
-//     utilisateur.otp = otp;
-//     utilisateur.otpExpire = otpExpire;
-//     await utilisateur.save();
-
-//     // Envoyer email OTP
-//     try {
-//       await transporter.sendMail({
-//         from: process.env.MAIL_USER,
-//         to: utilisateur.email,
-//         subject: "Votre nouveau code OTP",
-//         text: `Votre nouveau code OTP est : ${otp}. Il expire dans 1 minute.`,
-//       });
-//     } catch (mailErr) {
-//       return res.status(500).json({ message: "Erreur envoi email OTP" });
-//     }
-
-//     res
-//       .status(200)
-//       .json({ message: "Nouveau OTP envoyé avec succès", status: 200 });
-//   } catch (err) {
-//     console.error(err);
-//     res.status(500).json({ message: "Erreur serveur" });
-//   }
-// };
 
 // ===============================
 // Créer un vendeur
@@ -401,19 +223,25 @@ const creerVendeur = async (req, res) => {
   }
 };
 
-// ===============================
-// Récupérer utilisateurs selon rôle
-// ===============================
 const recupererUtilisateurs = async (req, res) => {
   try {
     const utilisateurConnecte = await getUserFromToken(req);
 
     let utilisateurs = [];
+
     if (utilisateurConnecte.Role.nom.toLowerCase() === "admin") {
       utilisateurs = await Utilisateur.findAll({
         include: [
           { model: Role, attributes: ["id", "nom"] },
           { model: Boutique, as: "Boutique", attributes: ["id", "nom"] },
+
+          {
+            model: Caisse,
+            as: "Caisses",
+            attributes: ["id", "type", "solde_actuel"],
+            where: { type: "CAISSE" },
+            required: false, 
+          },
         ],
         where: {
           "$Boutique.utilisateurId$": utilisateurConnecte.id,
@@ -421,17 +249,63 @@ const recupererUtilisateurs = async (req, res) => {
         },
       });
     } else {
-      utilisateurs = [utilisateurConnecte];
+      utilisateurs = await Utilisateur.findAll({
+        where: { id: utilisateurConnecte.id },
+        include: [
+          { model: Role, attributes: ["id", "nom"] },
+          { model: Boutique, as: "Boutique", attributes: ["id", "nom"] },
+
+          {
+            model: Caisse,
+            as: "Caisses",
+            attributes: ["id", "type", "solde_actuel"],
+            where: { type: "CAISSE" },
+            required: false,
+          },
+        ],
+      });
     }
 
     res.status(200).json(utilisateurs);
   } catch (error) {
     console.error(error);
-    res
-      .status(error.status || 500)
-      .json({ message: error.message || "Erreur serveur" });
+    res.status(error.status || 500).json({
+      message: error.message || "Erreur serveur",
+    });
   }
 };
+
+// ===============================
+// Récupérer utilisateurs selon rôle
+// ===============================
+// const recupererUtilisateurs = async (req, res) => {
+//   try {
+//     const utilisateurConnecte = await getUserFromToken(req);
+
+//     let utilisateurs = [];
+//     if (utilisateurConnecte.Role.nom.toLowerCase() === "admin") {
+//       utilisateurs = await Utilisateur.findAll({
+//         include: [
+//           { model: Role, attributes: ["id", "nom"] },
+//           { model: Boutique, as: "Boutique", attributes: ["id", "nom"] },
+//         ],
+//         where: {
+//           "$Boutique.utilisateurId$": utilisateurConnecte.id,
+//           "$Role.nom$": "VENDEUR",
+//         },
+//       });
+//     } else {
+//       utilisateurs = [utilisateurConnecte];
+//     }
+
+//     res.status(200).json(utilisateurs);
+//   } catch (error) {
+//     console.error(error);
+//     res
+//       .status(error.status || 500)
+//       .json({ message: error.message || "Erreur serveur" });
+//   }
+// };
 
 // ===============================
 // Modifier utilisateur connecté
